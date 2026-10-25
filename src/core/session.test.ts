@@ -1,6 +1,6 @@
 import { pendingSwipie } from './swipie'
-import { currentMatch } from './tournament'
-import { initialSession, loadSession, saveSession, sessionReducer, tournamentState, view, type Session } from './session'
+import { currentMatch, results } from './tournament'
+import { initialSession, loadSession, saveSession, sessionReducer, topIds, tournamentState, view, type Session } from './session'
 
 const withGames = (...names: string[]): Session =>
   sessionReducer(initialSession, { type: 'add', swipies: names.map((name) => pendingSwipie({ name })) })
@@ -63,6 +63,29 @@ test('rematch restarts with the same participants and a new seed', () => {
   s = sessionReducer(s, { type: 'rematch', seed: 2 })
   expect(view(s)).toBe('swipe')
   expect(s.tournament).toMatchObject({ picks: [], config: { seed: 2, ids: ['q:a', 'q:b', 'q:c'] } })
+})
+
+describe('rematchTop', () => {
+  const finished = () => playToEnd(sessionReducer(withGames('A', 'B', 'C', 'D', 'E', 'F'), { type: 'start', seed: 1 }))
+
+  test('restarts with the best N by ranking and keeps the full list', () => {
+    const s = finished()
+    const ranking = results(tournamentState(s)!).ranking
+    const next = sessionReducer(s, { type: 'rematchTop', count: 3, seed: 9 })
+    expect(view(next)).toBe('swipe')
+    expect(next.swipies).toBe(s.swipies)
+    expect(next.tournament).toMatchObject({ picks: [], config: { seed: 9, algorithm: 'dropout', ids: ranking.slice(0, 3).flatMap((t) => t.ids) } })
+  })
+
+  test('includes a whole tie that straddles the cut', () => {
+    const s = finished()
+    expect(topIds(results(tournamentState(s)!).ranking, 4)).toHaveLength(6)
+  })
+
+  test('is ignored before the tournament is done', () => {
+    const s = sessionReducer(withGames('A', 'B', 'C'), { type: 'start', seed: 1 })
+    expect(sessionReducer(s, { type: 'rematchTop', count: 2, seed: 2 })).toBe(s)
+  })
 })
 
 test('editing the list is ignored while a tournament runs', () => {

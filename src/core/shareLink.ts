@@ -5,12 +5,24 @@ import { ALGORITHMS, type AlgorithmId } from './tournament'
 export interface SharedList {
   algorithm: AlgorithmId
   entries: ImportEntry[]
+  ranking?: ImportEntry[][]
 }
 
-// Format: s=1&a=<algorithm>&g=<item>,<item>…  item = base36 RAWG id | ~<uri-encoded name>
-export function encodeShare({ algorithm, swipies }: { algorithm: AlgorithmId; swipies: readonly Swipie[] }): string {
-  const items = swipies.map((s) => (s.rawgId ? s.rawgId.toString(36) : `~${encodeURIComponent(s.name)}`))
-  return `s=1&a=${algorithm}&g=${items.join(',')}`
+const encodeItem = (s: { name: string; rawgId?: number }) => (s.rawgId ? s.rawgId.toString(36) : `~${encodeURIComponent(s.name)}`)
+
+// Format: s=1&a=<algorithm>&g=<item>,<item>…[&r=<tier>.<tier>…]
+// item = base36 RAWG id | ~<uri-encoded name>; tier = <item>+<item>…
+export function encodeShare({
+  algorithm,
+  swipies,
+  ranking,
+}: {
+  algorithm: AlgorithmId
+  swipies: readonly Swipie[]
+  ranking?: readonly (readonly Swipie[])[]
+}): string {
+  const base = `s=1&a=${algorithm}&g=${swipies.map(encodeItem).join(',')}`
+  return ranking ? `${base}&r=${ranking.map((tier) => tier.map(encodeItem).join('+')).join('.')}` : base
 }
 
 function decodeItem(item: string): ImportEntry | null {
@@ -27,6 +39,12 @@ function decodeItem(item: string): ImportEntry | null {
   return rawgId > 0 ? { name: `RAWG #${rawgId}`, rawgId } : null
 }
 
+const decodeItems = (text: string, sep: string) =>
+  text
+    .split(sep)
+    .map(decodeItem)
+    .filter((e): e is ImportEntry => e !== null)
+
 export function decodeShare(hash: string): SharedList | null {
   const params = new Map(
     hash
@@ -38,16 +56,18 @@ export function decodeShare(hash: string): SharedList | null {
       }),
   )
   if (params.get('s') !== '1') return null
-  const entries = (params.get('g') ?? '')
-    .split(',')
-    .map(decodeItem)
-    .filter((e): e is ImportEntry => e !== null)
+  const entries = decodeItems(params.get('g') ?? '', ',')
   if (entries.length === 0) return null
   const a = params.get('a') ?? ''
-  return { algorithm: a in ALGORITHMS ? (a as AlgorithmId) : 'dropout', entries }
+  const algorithm = a in ALGORITHMS ? (a as AlgorithmId) : 'dropout'
+  const ranking = (params.get('r') ?? '')
+    .split('.')
+    .map((tier) => decodeItems(tier, '+'))
+    .filter((tier) => tier.length > 0)
+  return ranking.length ? { algorithm, entries, ranking } : { algorithm, entries }
 }
 
-const entryKey = (e: { name: string; rawgId?: number }) => (e.rawgId ? `r:${e.rawgId}` : `n:${e.name.toLowerCase()}`)
+export const entryKey = (e: { name: string; rawgId?: number }) => (e.rawgId ? `r:${e.rawgId}` : `n:${e.name.toLowerCase()}`)
 
 export function isSameList(shared: SharedList, current: { algorithm: AlgorithmId; swipies: readonly Swipie[] }): boolean {
   if (shared.algorithm !== current.algorithm) return false

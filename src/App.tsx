@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useReducer, useRef } from 'react'
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
+import { loadFriend, saveFriend } from './core/friend'
 import { loadSession, saveSession, sessionReducer, tournamentState, view } from './core/session'
 import { randomSeed } from './core/rng'
 import { decodeShare, encodeShare, isSameList } from './core/shareLink'
@@ -23,6 +24,8 @@ export function App({ source = defaultSource, seed = randomSeed }: Props) {
   const [session, dispatch] = useReducer(sessionReducer, undefined, () => loadSession(localStorage))
   useEffect(() => saveSession(localStorage, session), [session])
   const importEntries = useImporter(source, dispatch)
+  const [friend, setFriend] = useState(() => loadFriend(localStorage))
+  useEffect(() => saveFriend(localStorage, friend), [friend])
 
   const sessionRef = useRef(session)
   sessionRef.current = session
@@ -31,6 +34,7 @@ export function App({ source = defaultSource, seed = randomSeed }: Props) {
     if (sharedHandled.current) return
     sharedHandled.current = true
     const shared = decodeShare(window.location.hash)
+    if (shared?.ranking) setFriend({ ...shared, ranking: shared.ranking })
     if (!shared || isSameList(shared, sessionRef.current)) return
     const { swipies, tournament } = sessionRef.current
     const hasWork = swipies.length > 0 || tournament !== null
@@ -62,7 +66,17 @@ export function App({ source = defaultSource, seed = randomSeed }: Props) {
         <SwipePage state={state} canUndo={(session.tournament?.picks.length ?? 0) > 0} byId={byId} dispatch={dispatch} />
       )}
       {current === 'summary' && state && <RoundSummary state={state} byId={byId} dispatch={dispatch} />}
-      {current === 'results' && state && <ResultsPage state={state} byId={byId} dispatch={dispatch} seed={seed} />}
+      {current === 'results' && state && (
+        <ResultsPage
+          state={state}
+          swipies={session.swipies}
+          byId={byId}
+          dispatch={dispatch}
+          seed={seed}
+          friend={friend && isSameList(friend, session) ? friend : null}
+          onForgetFriend={() => setFriend(null)}
+        />
+      )}
     </main>
   )
 }
