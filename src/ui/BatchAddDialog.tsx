@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react'
-import { batchCandidates, type BatchCandidate } from '../core/batchFilter'
+import { applyBatchView, BATCH_SORTS, batchCandidates, DEFAULT_BATCH_VIEW, platformOptions, type BatchCandidate, type BatchSort, type BatchView } from '../core/batchFilter'
 import type { Swipie } from '../core/swipie'
 import type { SwipieSource } from '../sources/source'
 import { SwipieThumb } from './SwipieCard'
@@ -25,6 +25,7 @@ const plural = (n: number) => `${n} game${n === 1 ? '' : 's'}`
 export function BatchAddDialog({ source, query, isAdded, onAdd, onClose, today = localToday() }: Props) {
   const [load, setLoad] = useState<Load>({ state: 'loading' })
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
+  const [view, setView] = useState<BatchView>(DEFAULT_BATCH_VIEW)
   const dialogRef = useRef<HTMLDivElement>(null)
   const id = useId()
   const isAddedRef = useRef(isAdded)
@@ -50,8 +51,15 @@ export function BatchAddDialog({ source, query, isAdded, onAdd, onClose, today =
     return () => controller.abort()
   }, [source, query, today])
 
-  const candidates = load.state === 'ready' ? load.candidates : []
+  const all = load.state === 'ready' ? load.candidates : []
+  const candidates = applyBatchView(all, view)
+  const platforms = platformOptions(all)
+  const years = all.map((c) => Number(c.swipie.released!.slice(0, 4)))
   const selectable = candidates.filter((c) => !c.added)
+  const update = (patch: Partial<BatchView>) => setView((v) => ({ ...v, ...patch }))
+  const yearValue = (v: string) => (v === '' ? undefined : Number(v))
+  const togglePlatform = (p: string) =>
+    update({ platforms: view.platforms.includes(p) ? view.platforms.filter((x) => x !== p) : [...view.platforms, p] })
   const chosen = selectable.filter((c) => selected.has(c.swipie.id))
 
   function toggle(swipieId: string) {
@@ -80,9 +88,46 @@ export function BatchAddDialog({ source, query, isAdded, onAdd, onClose, today =
       >
         <header className="dialog__head">
           <h2 id={`${id}-title`}>Add games matching "{query}"</h2>
-          {load.state === 'ready' && candidates.length > 0 && (
+          {load.state === 'ready' && all.length > 0 && (
+            <div className="batch-filters">
+              <label>
+                Sort
+                <select value={view.sort} onChange={(e) => update({ sort: e.target.value as BatchSort })}>
+                  {(Object.keys(BATCH_SORTS) as BatchSort[]).map((k) => (
+                    <option key={k} value={k}>
+                      {BATCH_SORTS[k]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                From year
+                <input type="number" inputMode="numeric" placeholder={String(Math.min(...years))} value={view.yearFrom ?? ''} onChange={(e) => update({ yearFrom: yearValue(e.target.value) })} />
+              </label>
+              <label>
+                To year
+                <input type="number" inputMode="numeric" placeholder={String(Math.max(...years))} value={view.yearTo ?? ''} onChange={(e) => update({ yearTo: yearValue(e.target.value) })} />
+              </label>
+              <label>
+                Min ratings
+                <input type="number" inputMode="numeric" min={0} value={view.minRatings} onChange={(e) => update({ minRatings: Number(e.target.value) || 0 })} />
+              </label>
+              {platforms.length > 1 && (
+                <div className="chips" role="group" aria-label="Platforms">
+                  {platforms.map((p) => (
+                    <button key={p} type="button" className="chip" aria-pressed={view.platforms.includes(p)} onClick={() => togglePlatform(p)}>
+                      {p}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          {load.state === 'ready' && all.length > 0 && (
             <div className="dialog__tools">
-              <span className="muted">{plural(candidates.length)} found</span>
+              <span className="muted">
+                Showing {candidates.length} of {all.length}
+              </span>
               <button type="button" className="link" onClick={() => setSelected(new Set(selectable.map((c) => c.swipie.id)))}>
                 Select all
               </button>
@@ -99,7 +144,8 @@ export function BatchAddDialog({ source, query, isAdded, onAdd, onClose, today =
               {load.message}
             </p>
           )}
-          {load.state === 'ready' && candidates.length === 0 && <p className="muted">No released games match "{query}".</p>}
+          {load.state === 'ready' && all.length === 0 && <p className="muted">No released games match "{query}".</p>}
+          {load.state === 'ready' && all.length > 0 && candidates.length === 0 && <p className="muted">No games match these filters.</p>}
           {candidates.length > 0 && (
             <ul className="batch">
               {candidates.map(({ swipie: s, added }, i) => {

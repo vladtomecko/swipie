@@ -160,13 +160,14 @@ describe('batch add', () => {
     expect(options.length).toBeGreaterThan(1)
   })
 
-  test('reviewing lists released matching base games oldest first, obscure ones unticked', async () => {
+  test('reviewing lists released matching base games oldest first, obscure ones hidden', async () => {
     const { user } = setup(rawg)
     const dialog = await openBatch(user)
     const boxes = await candidates(dialog)
-    const order = ['Total War: SHOGUN 2', 'Total War: ROME II', 'Total War: WARHAMMER', 'Total War: ARENA']
+    const order = ['Total War: SHOGUN 2', 'Total War: ROME II', 'Total War: WARHAMMER']
     expect(boxes).toEqual(order.map((name) => within(dialog).getByRole('checkbox', { name })))
-    expect(boxes.map((b) => (b as HTMLInputElement).checked)).toEqual([true, true, true, false])
+    expect(boxes.map((b) => (b as HTMLInputElement).checked)).toEqual([true, true, true])
+    expect(within(dialog).getByText(/showing 3 of 4/i)).toBeInTheDocument()
     expect(within(dialog).getByRole('checkbox', { name: 'Total War: ROME II' })).toHaveAccessibleDescription(/2013/)
     expect(within(dialog).getByRole('button', { name: 'Add 3 games' })).toBeEnabled()
   })
@@ -183,12 +184,14 @@ describe('batch add', () => {
     expect(screen.queryByText(/from "/)).not.toBeInTheDocument()
   })
 
-  test('select none disables adding; select all includes obscure games', async () => {
+  test('select none disables adding; lowering min ratings and select all includes obscure games', async () => {
     const { user } = setup(rawg)
     const dialog = await openBatch(user)
     await candidates(dialog)
     await user.click(within(dialog).getByRole('button', { name: /select none/i }))
     expect(within(dialog).getByRole('button', { name: 'Add 0 games' })).toBeDisabled()
+    await user.clear(within(dialog).getByRole('spinbutton', { name: /min ratings/i }))
+    await user.type(within(dialog).getByRole('spinbutton', { name: /min ratings/i }), '0')
     await user.click(within(dialog).getByRole('button', { name: /select all/i }))
     await user.click(within(dialog).getByRole('button', { name: 'Add 4 games' }))
     expect(gameNames()).toEqual(['Total War: ARENA', 'Total War: ROME II', 'Total War: SHOGUN 2', 'Total War: WARHAMMER'])
@@ -206,7 +209,33 @@ describe('batch add', () => {
     expect(rome).toHaveAccessibleDescription(/already added/i)
     await user.click(within(dialog).getByRole('button', { name: /select all/i }))
     expect(rome).not.toBeChecked()
-    expect(within(dialog).getByRole('button', { name: 'Add 3 games' })).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'Add 2 games' })).toBeInTheDocument()
+  })
+
+  test('sort by popularity reorders the list', async () => {
+    const { user } = setup(rawg)
+    const dialog = await openBatch(user)
+    await candidates(dialog)
+    await user.selectOptions(within(dialog).getByRole('combobox', { name: /sort/i }), 'Most popular')
+    expect(within(dialog).getAllByRole('checkbox').map((b) => b.closest('label')!.querySelector('.batch__name')!.textContent)).toEqual([
+      'Total War: ROME II',
+      'Total War: SHOGUN 2',
+      'Total War: WARHAMMER',
+    ])
+  })
+
+  test('year range and platform filters hide games, and hidden games are not added', async () => {
+    const { user } = setup(rawg)
+    const dialog = await openBatch(user)
+    await candidates(dialog)
+    await user.type(within(dialog).getByRole('spinbutton', { name: /from year/i }), '2012')
+    expect(within(dialog).queryByRole('checkbox', { name: 'Total War: SHOGUN 2' })).not.toBeInTheDocument()
+    expect(within(dialog).getByText(/showing 2 of 4/i)).toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: 'Apple Macintosh' }))
+    expect(within(dialog).getByRole('button', { name: 'Apple Macintosh' })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(dialog).getAllByRole('checkbox')).toHaveLength(1)
+    await user.click(within(dialog).getByRole('button', { name: 'Add 1 game' }))
+    expect(gameNames()).toEqual(['Total War: ROME II'])
   })
 
   test('Escape and Cancel close the review without adding', async () => {

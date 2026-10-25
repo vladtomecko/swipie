@@ -1,4 +1,4 @@
-import { batchCandidates, matchesAllWords } from './batchFilter'
+import { applyBatchView, batchCandidates, DEFAULT_BATCH_VIEW, matchesAllWords, platformOptions, type BatchView } from './batchFilter'
 import type { Swipie } from './swipie'
 
 const game = (id: number, name: string, extra: Partial<Swipie> = {}): Swipie => ({
@@ -76,19 +76,56 @@ describe('batchCandidates', () => {
     expect(run('total war', many)).toHaveLength(100)
   })
 
-  test('preselects games unless they have fewer than 10 ratings', () => {
-    const out = run('total war', [
-      game(1, 'Total War: Popular', { ratingsCount: 10 }),
-      game(2, 'Total War: Obscure', { ratingsCount: 9 }),
-      game(3, 'Total War: Unknown', { ratingsCount: undefined }),
-    ])
-    const selected = Object.fromEntries(out.map((c) => [c.swipie.name, c.selected]))
-    expect(selected).toEqual({ 'Total War: Popular': true, 'Total War: Obscure': false, 'Total War: Unknown': false })
+  test('preselects every game not already in the list', () => {
+    const out = run('total war', [game(1, 'Total War: Popular'), game(2, 'Total War: Obscure', { ratingsCount: 2 })])
+    expect(out.map((c) => c.selected)).toEqual([true, true])
   })
 
   test('games already in the list are marked added and never selected', () => {
     const out = run('total war', [game(1, 'Total War: ROME II'), game(2, 'Total War: ATTILA')], (s) => s.rawgId === 1)
     expect(out.find((c) => c.swipie.rawgId === 1)).toMatchObject({ added: true, selected: false })
     expect(out.find((c) => c.swipie.rawgId === 2)).toMatchObject({ added: false, selected: true })
+  })
+})
+
+describe('applyBatchView', () => {
+  const pool = run('total war', [
+    game(1, 'Total War: Shogun 2', { released: '2011-03-15', owners: 9000, rating: 4.2, ratingsCount: 800, metacritic: 90, platforms: ['PC'] }),
+    game(2, 'Total War: Rome II', { released: '2013-09-03', owners: 12000, rating: 3.6, ratingsCount: 900, metacritic: 76, platforms: ['PC', 'Apple Macintosh'] }),
+    game(3, 'Total War: Warhammer', { released: '2016-05-24', owners: 7000, rating: 4.4, ratingsCount: 600, platforms: ['PC'] }),
+    game(4, 'Total War: Arena', { released: '2018-02-22', owners: 300, ratingsCount: 4, platforms: ['PC'] }),
+    game(5, 'Total War: Medieval', { released: '2002-08-19', owners: 2000, rating: 4.0, ratingsCount: 200, platforms: ['PlayStation'] }),
+  ])
+  const names = (view: Partial<BatchView>) => applyBatchView(pool, { ...DEFAULT_BATCH_VIEW, ...view }).map((c) => c.swipie.name.replace('Total War: ', ''))
+
+  test('default: oldest first, games under 10 ratings hidden', () => {
+    expect(names({})).toEqual(['Medieval', 'Shogun 2', 'Rome II', 'Warhammer'])
+  })
+
+  test('sorts: newest, most popular, best rated (unrated last), metacritic (unscored last)', () => {
+    expect(names({ sort: 'released-desc' })).toEqual(['Warhammer', 'Rome II', 'Shogun 2', 'Medieval'])
+    expect(names({ sort: 'popular' })).toEqual(['Rome II', 'Shogun 2', 'Warhammer', 'Medieval'])
+    expect(names({ sort: 'rating', minRatings: 0 })).toEqual(['Warhammer', 'Shogun 2', 'Medieval', 'Rome II', 'Arena'])
+    expect(names({ sort: 'metacritic' })).toEqual(['Shogun 2', 'Rome II', 'Medieval', 'Warhammer'])
+  })
+
+  test('year range is inclusive and either end is optional', () => {
+    expect(names({ yearFrom: 2011, yearTo: 2013 })).toEqual(['Shogun 2', 'Rome II'])
+    expect(names({ yearFrom: 2013 })).toEqual(['Rome II', 'Warhammer'])
+    expect(names({ yearTo: 2010 })).toEqual(['Medieval'])
+  })
+
+  test('min ratings threshold', () => {
+    expect(names({ minRatings: 0 })).toHaveLength(5)
+    expect(names({ minRatings: 700 })).toEqual(['Shogun 2', 'Rome II'])
+  })
+
+  test('platform filter keeps games on any chosen platform', () => {
+    expect(names({ platforms: ['PlayStation'] })).toEqual(['Medieval'])
+    expect(names({ platforms: ['Apple Macintosh', 'PlayStation'] })).toEqual(['Medieval', 'Rome II'])
+  })
+
+  test('platform options list what the results offer, most common first', () => {
+    expect(platformOptions(pool)).toEqual(['PC', 'Apple Macintosh', 'PlayStation'])
   })
 })
