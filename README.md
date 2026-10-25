@@ -20,6 +20,10 @@ The address bar always holds the current list and algorithm (`#s=1&a=dropout&g=�
 - **Dropout:** pairs are shuffled each round, and a game that loses once is out. With an odd count, a random game gets a bye, and never twice in a row.
 - **Double elimination:** each round pairs games with the same number of losses, and a game is out after two losses.
 
+## Install
+
+Swipie is an installable PWA and works offline after the first visit. On mobile: Share → Add to Home Screen (iOS) or the browser menu → Install app (Android). Desktop Chrome/Edge: the install icon in the address bar. New versions activate automatically on the next reload after a deploy.
+
 ## Development
 
 ```sh
