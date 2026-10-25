@@ -18,6 +18,8 @@ export interface Swipie {
   link?: string
   stores?: StoreLink[]
   ratingsCount?: number
+  owners?: number
+  platforms?: string[]
   tba?: boolean
 }
 

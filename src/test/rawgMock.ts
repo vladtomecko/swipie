@@ -23,13 +23,13 @@ export const catalogue = [
   rawgGame(4, 'Portal 2'),
   rawgGame(5, 'DOOM'),
   rawgGame(6, 'DOOM (1993)'),
-  rawgGame(10, 'Total War: SHOGUN 2', { released: '2011-03-15' }),
-  rawgGame(11, 'Total War: ROME II', { released: '2013-09-03' }),
-  rawgGame(12, 'Total War: WARHAMMER', { released: '2016-05-24' }),
+  rawgGame(10, 'Total War: SHOGUN 2', { released: '2011-03-15', added: 9000, parent_platforms: [{ platform: { id: 1, name: 'PC', slug: 'pc' } }] }),
+  rawgGame(11, 'Total War: ROME II', { released: '2013-09-03', added: 12000, parent_platforms: [{ platform: { id: 1, name: 'PC', slug: 'pc' } }, { platform: { id: 5, name: 'Apple Macintosh', slug: 'mac' } }] }),
+  rawgGame(12, 'Total War: WARHAMMER', { released: '2016-05-24', added: 7000, parent_platforms: [{ platform: { id: 1, name: 'PC', slug: 'pc' } }] }),
   rawgGame(13, 'Total War: SHOGUN 2 - Fall of the Samurai', { released: '2012-03-23', addition: true }),
   rawgGame(14, 'Total War: WARHAMMER 40,000', { released: null, tba: true }),
   rawgGame(15, 'Total War: Future', { released: '2099-01-01' }),
-  rawgGame(16, 'Total War: ARENA', { released: '2018-02-22', ratings_count: 4 }),
+  rawgGame(16, 'Total War: ARENA', { released: '2018-02-22', ratings_count: 4, added: 300, parent_platforms: [{ platform: { id: 1, name: 'PC', slug: 'pc' } }] }),
   rawgGame(17, 'Total Annihilation', { released: '1997-09-30' }),
 ]
 

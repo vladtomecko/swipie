@@ -128,3 +128,14 @@ describe('searchAll', () => {
 test('offline source finds nothing in bulk', async () => {
   expect(await offlineSource.searchAll('total war')).toEqual([])
 })
+
+test('maps popularity (added) and parent platforms', async () => {
+  server.use(
+    http.get(`${RAWG}/games`, () =>
+      HttpResponse.json({
+        results: [{ id: 9, slug: 'x', name: 'X', added: 1234, parent_platforms: [{ platform: { id: 1, name: 'PC', slug: 'pc' } }, { platform: { id: 2, name: 'PlayStation', slug: 'playstation' } }] }],
+      }),
+    ),
+  )
+  expect((await source.search('x'))[0]).toMatchObject({ owners: 1234, platforms: ['PC', 'PlayStation'] })
+})

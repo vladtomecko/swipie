@@ -14,6 +14,8 @@ interface RawgGame {
   background_image?: string | null
   rating?: number | null
   ratings_count?: number | null
+  added?: number | null
+  parent_platforms?: { platform: { name: string } }[] | null
   tba?: boolean | null
   metacritic?: number | null
   stores?: { store: { name: string; slug: string } }[] | null
@@ -43,6 +45,8 @@ function toSwipie(game: RawgGame, query: string): Swipie {
     ...(stores.length ? { stores } : {}),
     ...(game.ratings_count != null ? { ratingsCount: game.ratings_count } : {}),
     ...(game.tba ? { tba: true } : {}),
+    ...(game.added != null ? { owners: game.added } : {}),
+    ...(game.parent_platforms?.length ? { platforms: game.parent_platforms.map((p) => p.platform.name) } : {}),
   }
 }
 
