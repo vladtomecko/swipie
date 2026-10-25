@@ -395,6 +395,12 @@ describe('swipe page', () => {
 describe('results page', () => {
   async function finish(names: string, algorithm?: RegExp) {
     const utils = await startWith(names, algorithm)
+    await playOut(utils.user)
+    return utils
+  }
+
+  async function playOut(user: ReturnType<typeof userEvent.setup>) {
+    const utils = { user }
     while (screen.queryByTestId('swipe-stage') || screen.queryByTestId('round-summary')) {
       if (screen.queryByTestId('round-summary')) {
         await utils.user.click(screen.getByRole('button', { name: /next round/i }))
@@ -404,8 +410,62 @@ describe('results page', () => {
       const right = matchCards()[1].dataset.id!
       await utils.user.keyboard(left < right ? '{ArrowLeft}' : '{ArrowRight}')
     }
-    return utils
   }
+
+  test('share result copies a summary with a link carrying the ranking', async () => {
+    const { user } = await finish('A\nB\nC\nD')
+    await user.click(screen.getByRole('button', { name: /share result/i }))
+    const text = await navigator.clipboard.readText()
+    expect(text).toMatch(/^My Swipie winner: A 🏆\n1\. A\n2\. B\n3\. D \/ C\nSwipe yours: http:\/\/localhost(:\d+)?\/#s=1&a=dropout&g=~A,~B,~C,~D&r=~A\.~B\.~D\+~C$/)
+    expect(screen.getByRole('status')).toHaveTextContent('Result copied')
+  })
+
+  test('rematch top 4 plays only the best four but keeps the full list', async () => {
+    const { user } = await finish('A\nB\nC\nD\nE\nF\nG\nH')
+    expect(screen.queryByRole('button', { name: /rematch top 8/i })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /rematch top 4/i }))
+    expect(screen.getByText(/match 1 of 2/i)).toBeInTheDocument()
+    await playOut(user)
+    expect(within(screen.getByRole('region', { name: /ranking/i })).getAllByRole('listitem')).toHaveLength(3)
+    await user.click(screen.getByRole('button', { name: /new tournament/i }))
+    expect(gameNames()).toHaveLength(8)
+  })
+
+  test('download links export JSON and CSV', async () => {
+    await finish('A\nB')
+    const json = screen.getByRole('link', { name: /download json/i })
+    expect(json).toHaveAttribute('download', 'swipie-results.json')
+    expect(JSON.parse(decodeURIComponent(json.getAttribute('href')!.split(',').slice(1).join(',')))).toMatchObject({ winner: 'A' })
+    const csv = screen.getByRole('link', { name: /download csv/i })
+    expect(decodeURIComponent(csv.getAttribute('href')!.split(',').slice(1).join(','))).toBe('place,name,rawgId\n1,A,\n2,B,\n')
+  })
+
+  test("compares with a friend's shared result for the same list", async () => {
+    history.replaceState(null, '', '/#s=1&a=dropout&g=~A,~B,~C,~D&r=~D.~C.~A+~B')
+    const { user } = setup()
+    await waitFor(() => expect(gameNames()).toEqual(['A', 'B', 'C', 'D']))
+    expect(window.location.hash).toBe('#s=1&a=dropout&g=~A,~B,~C,~D')
+    await user.click(screen.getByRole('button', { name: /start swiping/i }))
+    await playOut(user)
+    const compare = screen.getByRole('region', { name: /compare with friend/i })
+    expect(compare).toHaveTextContent('Different winners: yours A, theirs D')
+    const rows = within(compare).getAllByRole('row').slice(1).map((r) => r.textContent)
+    expect(rows).toEqual(['A13', 'B23', 'D31', 'C32'])
+    await user.click(within(compare).getByRole('button', { name: /forget/i }))
+    expect(screen.queryByRole('region', { name: /compare with friend/i })).not.toBeInTheDocument()
+  })
+
+  test('opening a result link for your own list stores the ranking without asking', async () => {
+    const { unmount } = await finish('A\nB')
+    unmount()
+    const confirm = vi.spyOn(window, 'confirm')
+    history.replaceState(null, '', '/#s=1&a=dropout&g=~A,~B&r=~A.~B')
+    setup()
+    expect(confirm).not.toHaveBeenCalled()
+    expect(screen.getByRole('region', { name: /compare with friend/i })).toHaveTextContent('You agree on the winner!')
+    expect(window.location.hash).toBe('#s=1&a=dropout&g=~A,~B')
+    confirm.mockRestore()
+  })
 
   test('dropout: winner, timeline and ranking', async () => {
     await finish('A\nB\nC\nD')

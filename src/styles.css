@@ -48,6 +48,17 @@ button {
 }
 button:disabled { opacity: 0.45; cursor: not-allowed; }
 button.primary { background: var(--accent); color: var(--accent-text); border-color: transparent; font-weight: 600; }
+a.button {
+  display: inline-block; text-decoration: none; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--panel); color: var(--text); padding: 8px 14px;
+}
+.results .actions + .actions { margin-top: 8px; }
+.compare__headline { font-weight: 600; margin: 0 0 6px; }
+.compare__table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 0.95rem; }
+.compare__table th, .compare__table td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: left; }
+.compare__table th:not(:first-child), .compare__table td:not(:first-child) { text-align: center; width: 4.5em; }
+.compare__table th { color: var(--muted); font-weight: 500; }
+.compare__table td:first-child { overflow-wrap: anywhere; }
 button.link { border: none; background: none; color: var(--accent); padding: 4px 6px; }
 button.icon { border: none; background: none; font-size: 1.3rem; line-height: 1; color: var(--muted); padding: 4px 8px; }
 input, textarea {
