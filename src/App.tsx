@@ -17,9 +17,10 @@ const defaultSource = rawgKey ? createRawgSource(rawgKey) : offlineSource
 interface Props {
   source?: SwipieSource
   seed?: () => number
+  random?: () => number
 }
 
-export function App({ source = defaultSource, seed = randomSeed }: Props) {
+export function App({ source = defaultSource, seed = randomSeed, random = Math.random }: Props) {
   const [session, dispatch] = useReducer(sessionReducer, undefined, () => loadSession(localStorage))
   useEffect(() => saveSession(localStorage, session), [session])
   const importEntries = useImporter(source, dispatch)
@@ -59,7 +60,7 @@ export function App({ source = defaultSource, seed = randomSeed }: Props) {
       </header>
       {current === 'import' && <ImportPage session={session} dispatch={dispatch} source={source} onImport={importEntries} onStart={() => dispatch({ type: 'start', seed: seed() })} />}
       {current === 'swipe' && state && (
-        <SwipePage state={state} canUndo={(session.tournament?.picks.length ?? 0) > 0} byId={byId} dispatch={dispatch} />
+        <SwipePage state={state} canUndo={(session.tournament?.picks.length ?? 0) > 0} byId={byId} dispatch={dispatch} random={random} />
       )}
       {current === 'summary' && state && <RoundSummary state={state} byId={byId} dispatch={dispatch} />}
       {current === 'results' && state && <ResultsPage state={state} byId={byId} dispatch={dispatch} seed={seed} />}
