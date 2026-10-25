@@ -4,6 +4,7 @@ import { ALGORITHMS, replay, type AlgorithmId, type SwipieId, type TournamentCon
 export interface TournamentRecord {
   config: TournamentConfig
   picks: SwipieId[]
+  seenRounds: number
 }
 
 export interface Session {
@@ -22,10 +23,11 @@ export type SessionAction =
   | { type: 'start'; seed: number }
   | { type: 'pick'; winner: SwipieId }
   | { type: 'undo' }
+  | { type: 'continue' }
   | { type: 'newTournament' }
   | { type: 'rematch'; seed: number }
 
-export type View = 'import' | 'swipe' | 'results'
+export type View = 'import' | 'swipe' | 'summary' | 'results'
 
 export const initialSession: Session = { swipies: [], algorithm: 'dropout', tournament: null }
 
@@ -45,12 +47,13 @@ export function tournamentState(session: Session): TournamentState | null {
 export function view(session: Session): View {
   const state = tournamentState(session)
   if (!state) return 'import'
-  return state.status === 'done' ? 'results' : 'swipe'
+  if (state.status === 'done') return 'results'
+  return state.rounds.length > session.tournament!.seenRounds ? 'summary' : 'swipe'
 }
 
 function startWith(session: Session, ids: SwipieId[], seed: number): Session {
   if (ids.length < 2) return session
-  return { ...session, tournament: { config: { algorithm: session.algorithm, ids, seed }, picks: [] } }
+  return { ...session, tournament: { config: { algorithm: session.algorithm, ids, seed }, picks: [], seenRounds: 0 } }
 }
 
 export function sessionReducer(session: Session, action: SessionAction): Session {
@@ -72,20 +75,27 @@ export function sessionReducer(session: Session, action: SessionAction): Session
       return editing ? startWith(session, session.swipies.map((s) => s.id), action.seed) : session
     case 'pick': {
       const record = session.tournament
-      if (!record || tournamentState(session)?.status !== 'playing') return session
+      if (!record || view(session) !== 'swipe') return session
       return { ...session, tournament: { ...record, picks: [...record.picks, action.winner] } }
     }
     case 'undo': {
       const record = session.tournament
       if (!record || record.picks.length === 0) return session
-      return { ...session, tournament: { ...record, picks: record.picks.slice(0, -1) } }
+      const picks = record.picks.slice(0, -1)
+      const completed = replay(record.config, picks).rounds.length
+      return { ...session, tournament: { ...record, picks, seenRounds: Math.min(record.seenRounds, completed) } }
+    }
+    case 'continue': {
+      const record = session.tournament
+      if (!record || view(session) !== 'summary') return session
+      return { ...session, tournament: { ...record, seenRounds: tournamentState(session)!.rounds.length } }
     }
     case 'newTournament':
       return { ...session, tournament: null }
     case 'rematch': {
       const record = session.tournament
       if (!record) return session
-      return { ...session, algorithm: record.config.algorithm, tournament: { config: { ...record.config, seed: action.seed }, picks: [] } }
+      return { ...session, algorithm: record.config.algorithm, tournament: { config: { ...record.config, seed: action.seed }, picks: [], seenRounds: 0 } }
     }
   }
 }
@@ -107,12 +117,13 @@ export function loadSession(storage: Storage): Session {
     const data = JSON.parse(raw) as Partial<Session>
     if (!Array.isArray(data.swipies)) return initialSession
     const algorithm = data.algorithm && data.algorithm in ALGORITHMS ? data.algorithm : 'dropout'
-    const session: Session = { swipies: data.swipies, algorithm, tournament: data.tournament ?? null }
+    const record = data.tournament ?? null
     try {
-      tournamentState(session)
-      return session
+      const completed = record ? replay(record.config, record.picks).rounds.length : 0
+      const tournament = record ? { ...record, seenRounds: typeof record.seenRounds === 'number' ? record.seenRounds : completed } : null
+      return { swipies: data.swipies, algorithm, tournament }
     } catch {
-      return { ...session, tournament: null }
+      return { swipies: data.swipies, algorithm, tournament: null }
     }
   } catch {
     return initialSession

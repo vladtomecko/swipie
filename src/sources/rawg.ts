@@ -3,6 +3,8 @@ import type { StoreLink, Swipie } from '../core/swipie'
 import { notFound, type SwipieSource } from './source'
 
 const API = 'https://api.rawg.io/api'
+const BULK_PAGE_SIZE = 40
+const BULK_MAX_PAGES = 3
 
 interface RawgGame {
   id: number
@@ -11,6 +13,8 @@ interface RawgGame {
   released?: string | null
   background_image?: string | null
   rating?: number | null
+  ratings_count?: number | null
+  tba?: boolean | null
   metacritic?: number | null
   stores?: { store: { name: string; slug: string } }[] | null
 }
@@ -37,6 +41,8 @@ function toSwipie(game: RawgGame, query: string): Swipie {
     ...(game.metacritic ? { metacritic: game.metacritic } : {}),
     ...(game.released ? { released: game.released } : {}),
     ...(stores.length ? { stores } : {}),
+    ...(game.ratings_count != null ? { ratingsCount: game.ratings_count } : {}),
+    ...(game.tba ? { tba: true } : {}),
   }
 }
 
@@ -54,6 +60,20 @@ export function createRawgSource(key: string): SwipieSource {
     return data.results.map((g) => toSwipie(g, query))
   }
 
+  async function searchAll(query: string, signal?: AbortSignal) {
+    const out: Swipie[] = []
+    for (let page = 1; page <= BULK_MAX_PAGES; page++) {
+      const data = await get<{ next?: string | null; results: RawgGame[] }>(
+        '/games',
+        { search: query, search_precise: 'true', exclude_additions: 'true', page_size: String(BULK_PAGE_SIZE), page: String(page) },
+        signal,
+      )
+      out.push(...data.results.map((g) => toSwipie(g, query)))
+      if (!data.next) break
+    }
+    return out
+  }
+
   async function resolve(entry: ImportEntry) {
     try {
       if (entry.rawgId) {
@@ -67,5 +87,5 @@ export function createRawgSource(key: string): SwipieSource {
     }
   }
 
-  return { available: true, search, resolve }
+  return { available: true, search, searchAll, resolve }
 }

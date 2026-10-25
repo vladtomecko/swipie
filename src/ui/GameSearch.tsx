@@ -12,11 +12,12 @@ interface Props {
   onChoose: (s: Swipie) => void
   onSubmitText?: (text: string) => void
   onCancel?: () => void
+  onBatch?: (query: string) => void
 }
 
 const DEBOUNCE_MS = 250
 
-export function GameSearch({ source, label, initialQuery = '', autoFocus, isAdded, onChoose, onSubmitText, onCancel }: Props) {
+export function GameSearch({ source, label, initialQuery = '', autoFocus, isAdded, onChoose, onSubmitText, onCancel, onBatch }: Props) {
   const [query, setQuery] = useState(initialQuery)
   const [results, setResults] = useState<Swipie[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -35,7 +36,7 @@ export function GameSearch({ source, label, initialQuery = '', autoFocus, isAdde
         .search(q, controller.signal)
         .then((r) => {
           setResults(r)
-          setActive(0)
+          setActive(onBatch && r.length ? 1 : 0)
           setError(null)
         })
         .catch((e: unknown) => {
@@ -46,7 +47,7 @@ export function GameSearch({ source, label, initialQuery = '', autoFocus, isAdde
       clearTimeout(timer)
       controller.abort()
     }
-  }, [query, source])
+  }, [query, source, onBatch])
 
   function choose(s: Swipie) {
     onChoose(s)
@@ -54,10 +55,19 @@ export function GameSearch({ source, label, initialQuery = '', autoFocus, isAdde
     setResults([])
   }
 
+  const showBatch = !!onBatch && results.length > 0
+  const offset = showBatch ? 1 : 0
+
+  function chooseBatch() {
+    onBatch?.(query.trim())
+    setQuery('')
+    setResults([])
+  }
+
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'ArrowDown') {
       e.preventDefault()
-      setActive((i) => Math.min(i + 1, results.length - 1))
+      setActive((i) => Math.min(i + 1, results.length + offset - 1))
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
       setActive((i) => Math.max(i - 1, 0))
@@ -66,7 +76,8 @@ export function GameSearch({ source, label, initialQuery = '', autoFocus, isAdde
       onCancel?.()
     } else if (e.key === 'Enter') {
       e.preventDefault()
-      if (results[active]) choose(results[active])
+      if (showBatch && active === 0) chooseBatch()
+      else if (results[active - offset]) choose(results[active - offset])
       else if (query.trim() && onSubmitText) {
         onSubmitText(query.trim())
         setQuery('')
@@ -93,7 +104,21 @@ export function GameSearch({ source, label, initialQuery = '', autoFocus, isAdde
       {error && <p className="error">{error}</p>}
       {open && (
         <ul role="listbox" id={listId} className="search__list">
-          {results.map((s, i) => {
+          {showBatch && (
+            <li
+              id={`${listId}-0`}
+              role="option"
+              aria-selected={active === 0}
+              className={active === 0 ? 'search__opt search__opt--batch search__opt--active' : 'search__opt search__opt--batch'}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={chooseBatch}
+            >
+              <span className="search__batch-icon" aria-hidden="true">+</span>
+              <span>Add all games matching "{query.trim()}"…</span>
+            </li>
+          )}
+          {results.map((s, j) => {
+            const i = j + offset
             const added = isAdded?.(s) ?? false
             return (
               <li

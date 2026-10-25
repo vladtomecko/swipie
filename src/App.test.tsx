@@ -1,9 +1,11 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { App } from './App'
+import { decodeShare } from './core/shareLink'
 import { offlineSource } from './sources/source'
 import { createRawgSource } from './sources/rawg'
-import { server } from './test/rawgMock'
+import { http, HttpResponse } from 'msw'
+import { RAWG, server } from './test/rawgMock'
 
 beforeAll(() => server.listen({ onUnhandledFrame: 'error' }))
 afterEach(() => server.resetHandlers())
@@ -134,6 +136,136 @@ describe('import page with RAWG', () => {
   })
 })
 
+describe('batch add', () => {
+  const searchBox = () => screen.getByRole('combobox', { name: /search games/i })
+  const batchOption = () => screen.findByRole('option', { name: /add all games matching "total war"/i })
+
+  async function openBatch(user: ReturnType<typeof userEvent.setup>, query = 'total war') {
+    await user.type(searchBox(), query)
+    await user.click(await screen.findByRole('option', { name: new RegExp(`add all games matching "${query}"`, 'i') }))
+    return screen.getByRole('dialog', { name: `Add games matching "${query}"` })
+  }
+
+  const candidates = async (dialog: HTMLElement) => {
+    await within(dialog).findAllByRole('checkbox')
+    return within(dialog).getAllByRole('checkbox')
+  }
+
+  test('the first suggestion offers to add every matching game', async () => {
+    const { user } = setup(rawg)
+    await user.type(searchBox(), 'total war')
+    await batchOption()
+    const options = screen.getAllByRole('option')
+    expect(options[0]).toHaveAccessibleName('Add all games matching "total war"…')
+    expect(options.length).toBeGreaterThan(1)
+  })
+
+  test('reviewing lists released matching base games oldest first, obscure ones unticked', async () => {
+    const { user } = setup(rawg)
+    const dialog = await openBatch(user)
+    const boxes = await candidates(dialog)
+    const order = ['Total War: SHOGUN 2', 'Total War: ROME II', 'Total War: WARHAMMER', 'Total War: ARENA']
+    expect(boxes).toEqual(order.map((name) => within(dialog).getByRole('checkbox', { name })))
+    expect(boxes.map((b) => (b as HTMLInputElement).checked)).toEqual([true, true, true, false])
+    expect(within(dialog).getByRole('checkbox', { name: 'Total War: ROME II' })).toHaveAccessibleDescription(/2013/)
+    expect(within(dialog).getByRole('button', { name: 'Add 3 games' })).toBeEnabled()
+  })
+
+  test('unticking a game and confirming adds the rest and reports it', async () => {
+    const { user } = setup(rawg)
+    const dialog = await openBatch(user)
+    await candidates(dialog)
+    await user.click(within(dialog).getByRole('checkbox', { name: 'Total War: ROME II' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Add 2 games' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(gameNames()).toEqual(['Total War: SHOGUN 2', 'Total War: WARHAMMER'])
+    expect(screen.getByRole('status')).toHaveTextContent('Added 2 games')
+    expect(screen.queryByText(/from "/)).not.toBeInTheDocument()
+  })
+
+  test('select none disables adding; select all includes obscure games', async () => {
+    const { user } = setup(rawg)
+    const dialog = await openBatch(user)
+    await candidates(dialog)
+    await user.click(within(dialog).getByRole('button', { name: /select none/i }))
+    expect(within(dialog).getByRole('button', { name: 'Add 0 games' })).toBeDisabled()
+    await user.click(within(dialog).getByRole('button', { name: /select all/i }))
+    await user.click(within(dialog).getByRole('button', { name: 'Add 4 games' }))
+    expect(gameNames()).toEqual(['Total War: ARENA', 'Total War: ROME II', 'Total War: SHOGUN 2', 'Total War: WARHAMMER'])
+  })
+
+  test('games already in the list are shown but cannot be ticked', async () => {
+    const { user } = setup(rawg)
+    await user.type(searchBox(), 'rome')
+    await user.click(await screen.findByRole('option', { name: /^Total War: ROME II/ }))
+    const dialog = await openBatch(user)
+    await candidates(dialog)
+    const rome = within(dialog).getByRole('checkbox', { name: 'Total War: ROME II' })
+    expect(rome).toBeDisabled()
+    expect(rome).not.toBeChecked()
+    expect(rome).toHaveAccessibleDescription(/already added/i)
+    await user.click(within(dialog).getByRole('button', { name: /select all/i }))
+    expect(rome).not.toBeChecked()
+    expect(within(dialog).getByRole('button', { name: 'Add 3 games' })).toBeInTheDocument()
+  })
+
+  test('Escape and Cancel close the review without adding', async () => {
+    const { user } = setup(rawg)
+    await openBatch(user)
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    const dialog = await openBatch(user)
+    await user.click(within(dialog).getByRole('button', { name: /cancel/i }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(gameNames()).toEqual([])
+  })
+
+  test('says so when no released game matches', async () => {
+    const { user } = setup(rawg)
+    const dialog = await openBatch(user, 'total zzz')
+    expect(await within(dialog).findByText(/no released games match/i)).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'Add 0 games' })).toBeDisabled()
+  })
+
+  test('shows an error when RAWG fails', async () => {
+    const { user } = setup(rawg)
+    await user.type(searchBox(), 'total war')
+    const option = await batchOption()
+    server.use(http.get(`${RAWG}/games`, () => new HttpResponse(null, { status: 500 })))
+    await user.click(option)
+    const dialog = screen.getByRole('dialog')
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(/failed/i)
+  })
+
+  test('Enter still picks the first game; the batch row is reached with ArrowUp', async () => {
+    const { user } = setup(rawg)
+    await user.type(searchBox(), 'hades')
+    await screen.findByRole('option', { name: /^Hades II/ })
+    await user.keyboard('{Enter}')
+    expect(gameNames()).toEqual(['Hades'])
+    await user.type(searchBox(), 'total war')
+    await batchOption()
+    await user.keyboard('{ArrowUp}{Enter}')
+    expect(screen.getByRole('dialog', { name: 'Add games matching "total war"' })).toBeInTheDocument()
+  })
+
+  test('not offered when changing a single match', async () => {
+    const { user } = setup(rawg)
+    await pasteGames(user, 'doom')
+    await waitFor(() => expect(gameNames()).toEqual(['DOOM']))
+    await user.click(screen.getByRole('button', { name: 'Change DOOM' }))
+    await screen.findByRole('option', { name: /DOOM \(1993\)/ })
+    expect(screen.queryByRole('option', { name: /add all games/i })).not.toBeInTheDocument()
+  })
+
+  test('not offered offline', async () => {
+    const { user } = setup()
+    await user.type(searchBox(), 'total war')
+    await new Promise((r) => setTimeout(r, 300))
+    expect(screen.queryByRole('option', { name: /add all games/i })).not.toBeInTheDocument()
+  })
+})
+
 async function startWith(names: string, algorithm?: RegExp) {
   const utils = setup()
   await pasteGames(utils.user, names)
@@ -156,6 +288,8 @@ describe('swipe page', () => {
     const { user } = await startWith('A\nB\nC\nD')
     await user.keyboard('{ArrowLeft}')
     expect(screen.getByText(/match 2 of 2/i)).toBeInTheDocument()
+    await user.keyboard('{ArrowRight}')
+    expect(screen.getByRole('heading', { name: /round 1 complete/i })).toBeInTheDocument()
     await user.keyboard('{ArrowRight}')
     expect(screen.getByText(/round 2/i)).toBeInTheDocument()
   })
@@ -207,7 +341,11 @@ describe('swipe page', () => {
 describe('results page', () => {
   async function finish(names: string, algorithm?: RegExp) {
     const utils = await startWith(names, algorithm)
-    while (screen.queryByTestId('swipe-stage')) {
+    while (screen.queryByTestId('swipe-stage') || screen.queryByTestId('round-summary')) {
+      if (screen.queryByTestId('round-summary')) {
+        await utils.user.click(screen.getByRole('button', { name: /next round/i }))
+        continue
+      }
       const left = matchCards()[0].dataset.id!
       const right = matchCards()[1].dataset.id!
       await utils.user.keyboard(left < right ? '{ArrowLeft}' : '{ArrowRight}')
@@ -263,12 +401,12 @@ describe('share links', () => {
     expect(screen.getByRole('textbox', { name: /share link/i })).toHaveValue(url)
   })
 
-  test('opening a share link loads and resolves the games, then clears the hash', async () => {
+  test('opening a share link loads and resolves the games, and the address bar keeps the list', async () => {
     history.replaceState(null, '', '/#s=1&a=double-elimination&g=1,3,~Mystery%20Game')
     setup(rawg)
     await waitFor(() => expect(gameNames()).toEqual(['Celeste', 'Hades', 'Mystery Game']))
     expect(screen.getByRole('radio', { name: /double/i })).toBeChecked()
-    expect(window.location.hash).toBe('')
+    expect(decodeShare(window.location.hash)?.entries.map((e) => e.rawgId ?? e.name).sort()).toEqual([1, 3, 'Mystery Game'].sort())
     expect(screen.queryByText(/from "/)).not.toBeInTheDocument()
   })
 
@@ -281,7 +419,32 @@ describe('share links', () => {
     setup()
     expect(confirm).toHaveBeenCalledOnce()
     expect(gameNames()).toEqual(['Mine'])
+    expect(window.location.hash).toBe('#s=1&a=dropout&g=~Mine')
+  })
+
+  test('the address bar tracks the list as games are added, removed or the algorithm changes', async () => {
+    const { user } = setup()
     expect(window.location.hash).toBe('')
+    await pasteGames(user, 'B\nA')
+    expect(window.location.hash).toBe('#s=1&a=dropout&g=~A,~B')
+    await user.click(screen.getByRole('radio', { name: /double/i }))
+    expect(window.location.hash).toBe('#s=1&a=double-elimination&g=~A,~B')
+    await user.click(screen.getByRole('button', { name: 'Remove A' }))
+    expect(window.location.hash).toBe('#s=1&a=double-elimination&g=~B')
+    await user.click(screen.getByRole('button', { name: /clear all/i }))
+    expect(window.location.hash).toBe('')
+  })
+
+  test('reloading your own synced URL does not ask to replace anything', async () => {
+    const { user, unmount } = setup()
+    await pasteGames(user, 'A\nB')
+    await user.click(screen.getByRole('button', { name: /start swiping/i }))
+    await user.keyboard('{ArrowLeft}')
+    unmount()
+    const confirm = vi.spyOn(window, 'confirm')
+    setup()
+    expect(confirm).not.toHaveBeenCalled()
+    expect(screen.getByRole('heading', { name: /winner/i })).toBeInTheDocument()
   })
 
   test('replaces the existing list when confirmed', async () => {
@@ -292,5 +455,72 @@ describe('share links', () => {
     history.replaceState(null, '', '/#s=1&a=dropout&g=~Theirs')
     setup()
     await waitFor(() => expect(gameNames()).toEqual(['Theirs']))
+  })
+})
+
+describe('round summary', () => {
+  async function completeRound1(names = 'A\nB\nC\nD', algorithm?: RegExp) {
+    const utils = await startWith(names, algorithm)
+    while (screen.queryByTestId('swipe-stage')) await utils.user.keyboard('{ArrowLeft}')
+    return utils
+  }
+
+  test('shows who dropped out and who is still in, then continues to the next round', async () => {
+    const { user } = await completeRound1()
+    const summary = screen.getByTestId('round-summary')
+    expect(within(summary).getByRole('heading', { name: /round 1 complete/i })).toBeInTheDocument()
+    const out = within(summary).getByRole('list', { name: /dropped out/i })
+    expect(within(out).getAllByRole('listitem')).toHaveLength(2)
+    expect(within(out).getAllByText(/beaten by/i)).toHaveLength(2)
+    const stillIn = within(summary).getByRole('list', { name: /still in/i })
+    expect(within(stillIn).getAllByRole('listitem')).toHaveLength(2)
+    await user.click(within(summary).getByRole('button', { name: /next round/i }))
+    expect(screen.getByText(/round 2/i)).toBeInTheDocument()
+    expect(matchCards()).toHaveLength(2)
+  })
+
+  test('Enter, Space and the right arrow continue', async () => {
+    for (const key of ['{Enter}', ' ', '{ArrowRight}']) {
+      const { user, unmount } = await completeRound1()
+      await user.keyboard(key)
+      expect(screen.queryByTestId('round-summary')).not.toBeInTheDocument()
+      expect(screen.getByText(/round 2/i)).toBeInTheDocument()
+      unmount()
+      localStorage.clear()
+    }
+  })
+
+  test('a swipe continues', async () => {
+    await completeRound1()
+    const summary = screen.getByTestId('round-summary')
+    fireEvent.pointerDown(summary, { clientX: 300, pointerId: 1 })
+    fireEvent.pointerMove(summary, { clientX: 100, pointerId: 1 })
+    fireEvent.pointerUp(summary, { clientX: 100, pointerId: 1 })
+    expect(screen.getByText(/round 2/i)).toBeInTheDocument()
+  })
+
+  test('undo returns to the last match of the round', async () => {
+    const { user } = await completeRound1()
+    await user.click(screen.getByRole('button', { name: /undo/i }))
+    expect(screen.getByText(/match 2 of 2/i)).toBeInTheDocument()
+    await user.keyboard('{ArrowLeft}')
+    expect(screen.getByTestId('round-summary')).toBeInTheDocument()
+  })
+
+  test('double elimination lists first losses and groups survivors by losses', async () => {
+    await completeRound1('A\nB\nC\nD', /double/i)
+    const summary = screen.getByTestId('round-summary')
+    expect(within(summary).queryByRole('list', { name: /dropped out/i })).not.toBeInTheDocument()
+    const first = within(summary).getByRole('list', { name: /first loss/i })
+    expect(within(first).getAllByRole('listitem')).toHaveLength(2)
+    expect(within(within(summary).getByRole('list', { name: /undefeated/i })).getAllByRole('listitem')).toHaveLength(2)
+    expect(within(within(summary).getByRole('list', { name: /one loss/i })).getAllByRole('listitem')).toHaveLength(2)
+  })
+
+  test('a pending summary survives a reload', async () => {
+    const { unmount } = await completeRound1()
+    unmount()
+    setup()
+    expect(screen.getByTestId('round-summary')).toBeInTheDocument()
   })
 })
