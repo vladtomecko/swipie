@@ -9,11 +9,12 @@ interface Props {
   canUndo: boolean
   byId: (id: string) => Swipie
   dispatch: (a: SessionAction) => void
+  random?: () => number
 }
 
 const SWIPE_THRESHOLD = 80
 
-export function SwipePage({ state, canUndo, byId, dispatch }: Props) {
+export function SwipePage({ state, canUndo, byId, dispatch, random = Math.random }: Props) {
   const match = currentMatch(state)!
   const p = progress(state)
   const [dx, setDx] = useState(0)
@@ -22,15 +23,23 @@ export function SwipePage({ state, canUndo, byId, dispatch }: Props) {
 
   const pickSide = (side: 'left' | 'right') => dispatch({ type: 'pick', winner: side === 'left' ? match.a : match.b })
   const undo = () => dispatch({ type: 'undo' })
+  const [randomPick, setRandomPick] = useState<{ name: string; at: number } | null>(null)
+  const pickRandom = () => {
+    const winner = random() < 0.5 ? match.a : match.b
+    setRandomPick({ name: byId(winner).name, at: p.completedMatches + 1 })
+    dispatch({ type: 'pick', winner })
+  }
+  const randomMessage = randomPick?.at === p.completedMatches ? `Randomly picked ${randomPick.name}` : ''
 
-  const latest = useRef({ pickSide, undo })
-  latest.current = { pickSide, undo }
+  const latest = useRef({ pickSide, undo, pickRandom })
+  latest.current = { pickSide, undo, pickRandom }
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.target instanceof HTMLElement && e.target.closest('input, textarea')) return
       if (e.key === 'ArrowLeft') latest.current.pickSide('left')
       else if (e.key === 'ArrowRight') latest.current.pickSide('right')
+      else if (e.key.toLowerCase() === 'r') latest.current.pickRandom()
       else if (e.key === 'Backspace' || e.key.toLowerCase() === 'z') latest.current.undo()
       else return
       e.preventDefault()
@@ -117,8 +126,12 @@ export function SwipePage({ state, canUndo, byId, dispatch }: Props) {
         </span>
       </div>
 
-      <p className="hint muted">Tap a card, swipe, or press ← (first) / → (second). Z to undo.</p>
+      <p className="hint muted">Tap a card, swipe, or press ← (first) / → (second). R for random, Z to undo.</p>
+      <p role="status" className="status">{randomMessage}</p>
       <div className="actions">
+        <button type="button" onClick={pickRandom}>
+          Can't decide (random)
+        </button>
         <button type="button" onClick={undo} disabled={!canUndo}>
           Undo
         </button>

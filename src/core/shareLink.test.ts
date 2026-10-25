@@ -42,3 +42,16 @@ describe('isSameList', () => {
     expect(isSameList({ ...shared, entries: shared.entries.slice(1) }, session)).toBe(false)
   })
 })
+
+describe('ranking in share links', () => {
+  const sw = (name: string, rawgId?: number): Swipie => ({ id: name, name, query: name, status: 'resolved', ...(rawgId ? { rawgId } : {}) })
+  test('round-trips tiers with ids and names', () => {
+    const [a, b, c] = [sw('A', 40), sw('B c'), sw('C', 7)]
+    const hash = encodeShare({ algorithm: 'dropout', swipies: [a, b, c], ranking: [[a], [b, c]] })
+    expect(hash).toBe('s=1&a=dropout&g=14,~B%20c,7&r=14.~B%20c+7')
+    expect(decodeShare(`#${hash}`)?.ranking).toEqual([[{ name: 'RAWG #40', rawgId: 40 }], [{ name: 'B c' }, { name: 'RAWG #7', rawgId: 7 }]])
+  })
+  test('ranking is absent without r=', () => {
+    expect(decodeShare('#s=1&a=dropout&g=~A')).toEqual({ algorithm: 'dropout', entries: [{ name: 'A' }] })
+  })
+})

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useReducer, useRef } from 'react'
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
+import { loadFriend, saveFriend } from './core/friend'
 import { loadSession, saveSession, sessionReducer, tournamentState, view } from './core/session'
 import { randomSeed } from './core/rng'
 import { decodeShare, encodeShare, isSameList } from './core/shareLink'
@@ -17,12 +18,15 @@ const defaultSource = rawgKey ? createRawgSource(rawgKey) : offlineSource
 interface Props {
   source?: SwipieSource
   seed?: () => number
+  random?: () => number
 }
 
-export function App({ source = defaultSource, seed = randomSeed }: Props) {
+export function App({ source = defaultSource, seed = randomSeed, random = Math.random }: Props) {
   const [session, dispatch] = useReducer(sessionReducer, undefined, () => loadSession(localStorage))
   useEffect(() => saveSession(localStorage, session), [session])
   const importEntries = useImporter(source, dispatch)
+  const [friend, setFriend] = useState(() => loadFriend(localStorage))
+  useEffect(() => saveFriend(localStorage, friend), [friend])
 
   const sessionRef = useRef(session)
   sessionRef.current = session
@@ -31,6 +35,7 @@ export function App({ source = defaultSource, seed = randomSeed }: Props) {
     if (sharedHandled.current) return
     sharedHandled.current = true
     const shared = decodeShare(window.location.hash)
+    if (shared?.ranking) setFriend({ ...shared, ranking: shared.ranking })
     if (!shared || isSameList(shared, sessionRef.current)) return
     const { swipies, tournament } = sessionRef.current
     const hasWork = swipies.length > 0 || tournament !== null
@@ -59,10 +64,20 @@ export function App({ source = defaultSource, seed = randomSeed }: Props) {
       </header>
       {current === 'import' && <ImportPage session={session} dispatch={dispatch} source={source} onImport={importEntries} onStart={() => dispatch({ type: 'start', seed: seed() })} />}
       {current === 'swipe' && state && (
-        <SwipePage state={state} canUndo={(session.tournament?.picks.length ?? 0) > 0} byId={byId} dispatch={dispatch} />
+        <SwipePage state={state} canUndo={(session.tournament?.picks.length ?? 0) > 0} byId={byId} dispatch={dispatch} random={random} />
       )}
       {current === 'summary' && state && <RoundSummary state={state} byId={byId} dispatch={dispatch} />}
-      {current === 'results' && state && <ResultsPage state={state} byId={byId} dispatch={dispatch} seed={seed} />}
+      {current === 'results' && state && (
+        <ResultsPage
+          state={state}
+          swipies={session.swipies}
+          byId={byId}
+          dispatch={dispatch}
+          seed={seed}
+          friend={friend && isSameList(friend, session) ? friend : null}
+          onForgetFriend={() => setFriend(null)}
+        />
+      )}
     </main>
   )
 }

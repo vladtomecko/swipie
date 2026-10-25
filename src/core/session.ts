@@ -1,5 +1,14 @@
 import { addSwipies, removeSwipie, replaceSwipie, type Swipie } from './swipie'
-import { ALGORITHMS, replay, type AlgorithmId, type SwipieId, type TournamentConfig, type TournamentState } from './tournament'
+import { ALGORITHMS, replay, results, type AlgorithmId, type RankTier, type SwipieId, type TournamentConfig, type TournamentState } from './tournament'
+
+export function topIds(ranking: readonly RankTier[], count: number): SwipieId[] {
+  const ids: SwipieId[] = []
+  for (const tier of ranking) {
+    if (ids.length >= count) break
+    ids.push(...tier.ids)
+  }
+  return ids
+}
 
 export interface TournamentRecord {
   config: TournamentConfig
@@ -26,6 +35,7 @@ export type SessionAction =
   | { type: 'continue' }
   | { type: 'newTournament' }
   | { type: 'rematch'; seed: number }
+  | { type: 'rematchTop'; count: number; seed: number }
 
 export type View = 'import' | 'swipe' | 'summary' | 'results'
 
@@ -96,6 +106,13 @@ export function sessionReducer(session: Session, action: SessionAction): Session
       const record = session.tournament
       if (!record) return session
       return { ...session, algorithm: record.config.algorithm, tournament: { config: { ...record.config, seed: action.seed }, picks: [], seenRounds: 0 } }
+    }
+    case 'rematchTop': {
+      const record = session.tournament
+      if (!record || view(session) !== 'results') return session
+      const ids = topIds(results(tournamentState(session)!).ranking, action.count)
+      if (ids.length < 2) return session
+      return { ...session, algorithm: record.config.algorithm, tournament: { config: { ...record.config, ids, seed: action.seed }, picks: [], seenRounds: 0 } }
     }
   }
 }
