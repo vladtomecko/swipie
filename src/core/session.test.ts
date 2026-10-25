@@ -8,7 +8,7 @@ const withGames = (...names: string[]): Session =>
 function playToEnd(s: Session): Session {
   let t = tournamentState(s)
   while (t && t.status === 'playing') {
-    s = sessionReducer(s, { type: 'pick', winner: currentMatch(t)!.a })
+    s = view(s) === 'summary' ? sessionReducer(s, { type: 'continue' }) : sessionReducer(s, { type: 'pick', winner: currentMatch(t)!.a })
     t = tournamentState(s)
   }
   return s
@@ -81,7 +81,7 @@ test('corrupt or invalid storage falls back safely', () => {
   localStorage.setItem('swipie.session.v1', '{not json')
   expect(loadSession(localStorage)).toEqual(initialSession)
   const s = withGames('A', 'B')
-  saveSession(localStorage, { ...s, tournament: { config: { algorithm: 'dropout', ids: ['q:a', 'q:b'], seed: 1 }, picks: ['zzz'] } })
+  saveSession(localStorage, { ...s, tournament: { config: { algorithm: 'dropout', ids: ['q:a', 'q:b'], seed: 1 }, picks: ['zzz'], seenRounds: 0 } })
   const loaded = loadSession(localStorage)
   expect(loaded.swipies).toHaveLength(2)
   expect(loaded.tournament).toBeNull()
@@ -93,4 +93,57 @@ test('load replaces list and algorithm and drops any running tournament', () => 
   expect(view(s)).toBe('import')
   expect(s.algorithm).toBe('double-elimination')
   expect(s.swipies.map((x) => x.name)).toEqual(['Y', 'Z'])
+})
+
+describe('round summaries', () => {
+  const pickFirst = (s: Session) => sessionReducer(s, { type: 'pick', winner: currentMatch(tournamentState(s)!)!.a })
+
+  test('after a non-final round the summary view shows until continued', () => {
+    let s = sessionReducer(withGames('A', 'B', 'C', 'D'), { type: 'start', seed: 1 })
+    s = pickFirst(pickFirst(s))
+    expect(view(s)).toBe('summary')
+    expect(sessionReducer(s, { type: 'pick', winner: 'A' })).toBe(s)
+    s = sessionReducer(s, { type: 'continue' })
+    expect(view(s)).toBe('swipe')
+  })
+
+  test('no summary after the final round', () => {
+    let s = sessionReducer(withGames('A', 'B'), { type: 'start', seed: 1 })
+    s = pickFirst(s)
+    expect(view(s)).toBe('results')
+  })
+
+  test('undo on the summary returns to the last match; finishing the round again re-shows it', () => {
+    let s = sessionReducer(withGames('A', 'B', 'C', 'D'), { type: 'start', seed: 1 })
+    s = pickFirst(pickFirst(s))
+    s = sessionReducer(s, { type: 'undo' })
+    expect(view(s)).toBe('swipe')
+    s = pickFirst(s)
+    expect(view(s)).toBe('summary')
+  })
+
+  test('undoing back across a dismissed summary shows it again when the round re-completes', () => {
+    let s = sessionReducer(withGames('A', 'B', 'C', 'D'), { type: 'start', seed: 1 })
+    s = sessionReducer(pickFirst(pickFirst(s)), { type: 'continue' })
+    s = sessionReducer(s, { type: 'undo' })
+    expect(view(s)).toBe('swipe')
+    s = pickFirst(s)
+    expect(view(s)).toBe('summary')
+  })
+
+  test('a pending summary survives a reload; older saves without the field skip it', () => {
+    let s = sessionReducer(withGames('A', 'B', 'C', 'D'), { type: 'start', seed: 1 })
+    s = pickFirst(pickFirst(s))
+    saveSession(localStorage, s)
+    expect(view(loadSession(localStorage))).toBe('summary')
+    const legacy = { ...s, tournament: { config: s.tournament!.config, picks: s.tournament!.picks } }
+    localStorage.setItem('swipie.session.v1', JSON.stringify(legacy))
+    expect(view(loadSession(localStorage))).toBe('swipe')
+  })
+
+  test('rematch starts without pending summaries', () => {
+    let s = sessionReducer(withGames('A', 'B', 'C', 'D'), { type: 'start', seed: 1 })
+    s = sessionReducer(pickFirst(pickFirst(s)), { type: 'rematch', seed: 3 })
+    expect(view(s)).toBe('swipe')
+  })
 })

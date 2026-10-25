@@ -7,6 +7,7 @@ import { createRawgSource } from './sources/rawg'
 import { offlineSource, type SwipieSource } from './sources/source'
 import { ImportPage } from './ui/ImportPage'
 import { ResultsPage } from './ui/ResultsPage'
+import { RoundSummary } from './ui/RoundSummary'
 import { SwipePage } from './ui/SwipePage'
 import { useImporter } from './ui/useImporter'
 
@@ -54,6 +55,7 @@ export function App({ source = defaultSource, seed = randomSeed }: Props) {
       {current === 'swipe' && state && (
         <SwipePage state={state} canUndo={(session.tournament?.picks.length ?? 0) > 0} byId={byId} dispatch={dispatch} />
       )}
+      {current === 'summary' && state && <RoundSummary state={state} byId={byId} dispatch={dispatch} />}
       {current === 'results' && state && <ResultsPage state={state} byId={byId} dispatch={dispatch} seed={seed} />}
     </main>
   )

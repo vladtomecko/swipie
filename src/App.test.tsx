@@ -288,6 +288,8 @@ describe('swipe page', () => {
     await user.keyboard('{ArrowLeft}')
     expect(screen.getByText(/match 2 of 2/i)).toBeInTheDocument()
     await user.keyboard('{ArrowRight}')
+    expect(screen.getByRole('heading', { name: /round 1 complete/i })).toBeInTheDocument()
+    await user.keyboard('{ArrowRight}')
     expect(screen.getByText(/round 2/i)).toBeInTheDocument()
   })
 
@@ -338,7 +340,11 @@ describe('swipe page', () => {
 describe('results page', () => {
   async function finish(names: string, algorithm?: RegExp) {
     const utils = await startWith(names, algorithm)
-    while (screen.queryByTestId('swipe-stage')) {
+    while (screen.queryByTestId('swipe-stage') || screen.queryByTestId('round-summary')) {
+      if (screen.queryByTestId('round-summary')) {
+        await utils.user.click(screen.getByRole('button', { name: /next round/i }))
+        continue
+      }
       const left = matchCards()[0].dataset.id!
       const right = matchCards()[1].dataset.id!
       await utils.user.keyboard(left < right ? '{ArrowLeft}' : '{ArrowRight}')
@@ -423,5 +429,72 @@ describe('share links', () => {
     history.replaceState(null, '', '/#s=1&a=dropout&g=~Theirs')
     setup()
     await waitFor(() => expect(gameNames()).toEqual(['Theirs']))
+  })
+})
+
+describe('round summary', () => {
+  async function completeRound1(names = 'A\nB\nC\nD', algorithm?: RegExp) {
+    const utils = await startWith(names, algorithm)
+    while (screen.queryByTestId('swipe-stage')) await utils.user.keyboard('{ArrowLeft}')
+    return utils
+  }
+
+  test('shows who dropped out and who is still in, then continues to the next round', async () => {
+    const { user } = await completeRound1()
+    const summary = screen.getByTestId('round-summary')
+    expect(within(summary).getByRole('heading', { name: /round 1 complete/i })).toBeInTheDocument()
+    const out = within(summary).getByRole('list', { name: /dropped out/i })
+    expect(within(out).getAllByRole('listitem')).toHaveLength(2)
+    expect(within(out).getAllByText(/beaten by/i)).toHaveLength(2)
+    const stillIn = within(summary).getByRole('list', { name: /still in/i })
+    expect(within(stillIn).getAllByRole('listitem')).toHaveLength(2)
+    await user.click(within(summary).getByRole('button', { name: /next round/i }))
+    expect(screen.getByText(/round 2/i)).toBeInTheDocument()
+    expect(matchCards()).toHaveLength(2)
+  })
+
+  test('Enter, Space and the right arrow continue', async () => {
+    for (const key of ['{Enter}', ' ', '{ArrowRight}']) {
+      const { user, unmount } = await completeRound1()
+      await user.keyboard(key)
+      expect(screen.queryByTestId('round-summary')).not.toBeInTheDocument()
+      expect(screen.getByText(/round 2/i)).toBeInTheDocument()
+      unmount()
+      localStorage.clear()
+    }
+  })
+
+  test('a swipe continues', async () => {
+    await completeRound1()
+    const summary = screen.getByTestId('round-summary')
+    fireEvent.pointerDown(summary, { clientX: 300, pointerId: 1 })
+    fireEvent.pointerMove(summary, { clientX: 100, pointerId: 1 })
+    fireEvent.pointerUp(summary, { clientX: 100, pointerId: 1 })
+    expect(screen.getByText(/round 2/i)).toBeInTheDocument()
+  })
+
+  test('undo returns to the last match of the round', async () => {
+    const { user } = await completeRound1()
+    await user.click(screen.getByRole('button', { name: /undo/i }))
+    expect(screen.getByText(/match 2 of 2/i)).toBeInTheDocument()
+    await user.keyboard('{ArrowLeft}')
+    expect(screen.getByTestId('round-summary')).toBeInTheDocument()
+  })
+
+  test('double elimination lists first losses and groups survivors by losses', async () => {
+    await completeRound1('A\nB\nC\nD', /double/i)
+    const summary = screen.getByTestId('round-summary')
+    expect(within(summary).queryByRole('list', { name: /dropped out/i })).not.toBeInTheDocument()
+    const first = within(summary).getByRole('list', { name: /first loss/i })
+    expect(within(first).getAllByRole('listitem')).toHaveLength(2)
+    expect(within(within(summary).getByRole('list', { name: /undefeated/i })).getAllByRole('listitem')).toHaveLength(2)
+    expect(within(within(summary).getByRole('list', { name: /one loss/i })).getAllByRole('listitem')).toHaveLength(2)
+  })
+
+  test('a pending summary survives a reload', async () => {
+    const { unmount } = await completeRound1()
+    unmount()
+    setup()
+    expect(screen.getByTestId('round-summary')).toBeInTheDocument()
   })
 })
