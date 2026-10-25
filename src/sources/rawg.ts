@@ -56,7 +56,10 @@ export function createRawgSource(key: string): SwipieSource {
 
   async function resolve(entry: ImportEntry) {
     try {
-      if (entry.rawgId) return toSwipie(await get<RawgGame>(`/games/${entry.rawgId}`, {}), entry.name)
+      if (entry.rawgId) {
+        const game = await get<RawgGame>(`/games/${entry.rawgId}`, {})
+        return toSwipie(game, game.name)
+      }
       const [top] = await search(entry.name)
       return top ? { ...top, query: entry.name } : notFound(entry)
     } catch {

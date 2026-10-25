@@ -17,6 +17,7 @@ export type SessionAction =
   | { type: 'remove'; id: string }
   | { type: 'replace'; id: string; swipie: Swipie }
   | { type: 'clear' }
+  | { type: 'load'; algorithm: AlgorithmId; swipies: Swipie[] }
   | { type: 'setAlgorithm'; algorithm: AlgorithmId }
   | { type: 'start'; seed: number }
   | { type: 'pick'; winner: SwipieId }
@@ -63,6 +64,8 @@ export function sessionReducer(session: Session, action: SessionAction): Session
       return editing ? { ...session, swipies: replaceSwipie(session.swipies, action.id, action.swipie) } : session
     case 'clear':
       return editing ? { ...session, swipies: [] } : session
+    case 'load':
+      return { swipies: addSwipies([], action.swipies), algorithm: action.algorithm, tournament: null }
     case 'setAlgorithm':
       return editing ? { ...session, algorithm: action.algorithm } : session
     case 'start':

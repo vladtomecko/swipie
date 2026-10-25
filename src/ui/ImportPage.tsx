@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { ImportError, parseImport, SAMPLE_IMPORT, type ImportEntry } from '../core/importParser'
 import type { Session, SessionAction } from '../core/session'
-import { pendingSwipie, type Swipie } from '../core/swipie'
+import { encodeShare } from '../core/shareLink'
+import type { Swipie } from '../core/swipie'
 import { ALGORITHMS, type AlgorithmId } from '../core/tournament'
 import type { SwipieSource } from '../sources/source'
 import { GameSearch } from './GameSearch'
@@ -11,39 +12,41 @@ interface Props {
   session: Session
   dispatch: (a: SessionAction) => void
   source: SwipieSource
+  onImport: (entries: ImportEntry[]) => Promise<void>
   onStart: () => void
 }
-
-const RESOLVE_CONCURRENCY = 4
 const SAMPLE_HREF = `data:application/json;charset=utf-8,${encodeURIComponent(SAMPLE_IMPORT)}`
 
-export function ImportPage({ session, dispatch, source, onStart }: Props) {
+export function ImportPage({ session, dispatch, source, onImport, onStart }: Props) {
   const [pasted, setPasted] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [status, setStatus] = useState('')
   const [changing, setChanging] = useState<string | null>(null)
+  const [shareUrl, setShareUrl] = useState('')
   const { swipies } = session
 
   const isAdded = (s: Swipie) => swipies.some((x) => x.id === s.id || x.name.toLowerCase() === s.name.toLowerCase())
 
-  async function importEntries(entries: ImportEntry[]) {
-    const pending = entries.map(pendingSwipie)
-    dispatch({ type: 'add', swipies: pending })
+  function importEntries(entries: ImportEntry[]) {
+    void onImport(entries)
     setStatus(`Added ${entries.length} game${entries.length === 1 ? '' : 's'}`)
-    if (!source.available) return
-    const queue = entries.map((entry, i) => ({ entry, id: pending[i].id }))
-    const worker = async () => {
-      for (let job = queue.shift(); job; job = queue.shift()) {
-        dispatch({ type: 'replace', id: job.id, swipie: await source.resolve(job.entry) })
-      }
+  }
+
+  async function copyShareLink() {
+    const url = `${location.origin}${location.pathname}#${encodeShare(session)}`
+    setShareUrl(url)
+    try {
+      await navigator.clipboard.writeText(url)
+      setStatus('Share link copied')
+    } catch {
+      setStatus('Copy the share link below')
     }
-    await Promise.all(Array.from({ length: RESOLVE_CONCURRENCY }, worker))
   }
 
   function importText(text: string): boolean {
     try {
       setError(null)
-      void importEntries(parseImport(text))
+      importEntries(parseImport(text))
       return true
     } catch (e) {
       setError(e instanceof ImportError ? e.message : 'Could not import')
@@ -78,7 +81,7 @@ export function ImportPage({ session, dispatch, source, onStart }: Props) {
           label="Search games"
           isAdded={isAdded}
           onChoose={addChosen}
-          onSubmitText={(text) => void importEntries([{ name: text }])}
+          onSubmitText={(text) => importEntries([{ name: text }])}
         />
         <div className="import__row">
           <label className="filebtn">
@@ -185,9 +188,17 @@ export function ImportPage({ session, dispatch, source, onStart }: Props) {
             </label>
           ))}
         </div>
-        <button type="button" className="primary" disabled={swipies.length < 2} onClick={onStart}>
-          Start swiping
-        </button>
+        <div className="start-row">
+          <button type="button" className="primary" disabled={swipies.length < 2} onClick={onStart}>
+            Start swiping
+          </button>
+          <button type="button" disabled={swipies.length === 0} onClick={copyShareLink}>
+            Copy share link
+          </button>
+        </div>
+        {shareUrl && (
+          <input className="share-url" aria-label="Share link" readOnly value={shareUrl} onFocus={(e) => e.target.select()} />
+        )}
       </section>
     </div>
   )

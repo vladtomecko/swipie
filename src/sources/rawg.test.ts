@@ -40,7 +40,7 @@ test('resolve takes the top hit and remembers the original query', async () => {
 })
 
 test('resolve by rawgId fetches the game directly', async () => {
-  expect(await source.resolve({ name: 'whatever', rawgId: 4 })).toMatchObject({ id: 'rawg:4', name: 'Portal 2' })
+  expect(await source.resolve({ name: 'RAWG #4', rawgId: 4 })).toMatchObject({ id: 'rawg:4', name: 'Portal 2', query: 'Portal 2' })
 })
 
 test('resolve with no hits marks not-found but keeps the name', async () => {

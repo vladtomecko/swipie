@@ -241,3 +241,56 @@ describe('results page', () => {
     expect(gameNames()).toEqual(['A', 'B'])
   })
 })
+
+describe('share links', () => {
+  afterEach(() => {
+    history.replaceState(null, '', '/')
+    vi.restoreAllMocks()
+  })
+
+  test('copy share link puts a compact URL with RAWG ids on the clipboard', async () => {
+    const { user } = setup(rawg)
+    const share = screen.getByRole('button', { name: /copy share link/i })
+    expect(share).toBeDisabled()
+    await pasteGames(user, 'celeste\nhades\nMystery Game')
+    await waitFor(() => expect(within(gameList()).getAllByRole('img')).toHaveLength(2))
+    await user.click(screen.getByRole('radio', { name: /double/i }))
+    await user.click(share)
+    const url = await navigator.clipboard.readText()
+    expect(url).toMatch(/#s=1&a=double-elimination&g=/)
+    expect(url).not.toMatch(/celeste/i)
+    expect(screen.getByRole('status')).toHaveTextContent(/link copied/i)
+    expect(screen.getByRole('textbox', { name: /share link/i })).toHaveValue(url)
+  })
+
+  test('opening a share link loads and resolves the games, then clears the hash', async () => {
+    history.replaceState(null, '', '/#s=1&a=double-elimination&g=1,3,~Mystery%20Game')
+    setup(rawg)
+    await waitFor(() => expect(gameNames()).toEqual(['Celeste', 'Hades', 'Mystery Game']))
+    expect(screen.getByRole('radio', { name: /double/i })).toBeChecked()
+    expect(window.location.hash).toBe('')
+    expect(screen.queryByText(/from "/)).not.toBeInTheDocument()
+  })
+
+  test('asks before replacing an existing list, and keeps it when declined', async () => {
+    const { user, unmount } = setup()
+    await pasteGames(user, 'Mine')
+    unmount()
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    history.replaceState(null, '', '/#s=1&a=dropout&g=~Theirs')
+    setup()
+    expect(confirm).toHaveBeenCalledOnce()
+    expect(gameNames()).toEqual(['Mine'])
+    expect(window.location.hash).toBe('')
+  })
+
+  test('replaces the existing list when confirmed', async () => {
+    const { user, unmount } = setup()
+    await pasteGames(user, 'Mine')
+    unmount()
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    history.replaceState(null, '', '/#s=1&a=dropout&g=~Theirs')
+    setup()
+    await waitFor(() => expect(gameNames()).toEqual(['Theirs']))
+  })
+})

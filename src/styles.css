@@ -134,3 +134,6 @@ input, textarea {
   .stage { grid-template-columns: 1fr; }
   .card__img { aspect-ratio: 16 / 8; }
 }
+
+.start-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.share-url { margin-top: 10px; font-size: 0.85rem; }

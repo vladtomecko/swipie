@@ -86,3 +86,11 @@ test('corrupt or invalid storage falls back safely', () => {
   expect(loaded.swipies).toHaveLength(2)
   expect(loaded.tournament).toBeNull()
 })
+
+test('load replaces list and algorithm and drops any running tournament', () => {
+  let s = sessionReducer(withGames('A', 'B'), { type: 'start', seed: 1 })
+  s = sessionReducer(s, { type: 'load', algorithm: 'double-elimination', swipies: ['Z', 'Y'].map((name) => pendingSwipie({ name })) })
+  expect(view(s)).toBe('import')
+  expect(s.algorithm).toBe('double-elimination')
+  expect(s.swipies.map((x) => x.name)).toEqual(['Y', 'Z'])
+})
