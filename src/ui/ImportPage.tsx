@@ -62,7 +62,7 @@ export function ImportPage({ session, dispatch, source, onStart }: Props) {
       setStatus(`${s.name} is already in the list`)
       return
     }
-    dispatch({ type: 'add', swipies: [s] })
+    dispatch({ type: 'add', swipies: [{ ...s, query: s.name }] })
     setStatus(`Added ${s.name}`)
   }
 

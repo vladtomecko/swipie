@@ -117,7 +117,7 @@ export function SwipePage({ state, canUndo, byId, dispatch }: Props) {
         </span>
       </div>
 
-      <p className="hint muted">Swipe or press ← / → to pick, tap a card, Z to undo.</p>
+      <p className="hint muted">Tap a card, swipe, or press ← (first) / → (second). Z to undo.</p>
       <div className="actions">
         <button type="button" onClick={undo} disabled={!canUndo}>
           Undo

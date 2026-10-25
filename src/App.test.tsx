@@ -102,6 +102,7 @@ describe('import page with RAWG', () => {
     await user.click(option)
     expect(screen.getByRole('status')).toHaveTextContent(/added hades ii/i)
     expect(gameNames()).toEqual(['Hades II'])
+    expect(screen.queryByText(/from "/)).not.toBeInTheDocument()
     expect(within(gameList()).getByRole('img', { name: 'Hades II' })).toHaveAttribute('src', 'https://media.rawg.io/2.jpg')
   })
 
