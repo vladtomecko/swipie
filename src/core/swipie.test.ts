@@ -40,3 +40,8 @@ test('replace keeps order alphabetical and drops the old entry if the new one is
   list = replaceSwipie(list, 'q:doom', resolved(2, 'DOOM (2016)', 'doom'))
   expect(list.map((s) => s.id)).toEqual(['rawg:9', 'rawg:2'])
 })
+
+test('replace is ignored when the old entry was removed meanwhile', () => {
+  const list = addSwipies([], [pendingSwipie({ name: 'A' })])
+  expect(replaceSwipie(list, 'q:gone', resolved(1, 'Gone'))).toEqual(list)
+})

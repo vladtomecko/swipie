@@ -47,6 +47,7 @@ export function removeSwipie(list: readonly Swipie[], id: string): Swipie[] {
 }
 
 export function replaceSwipie(list: readonly Swipie[], oldId: string, next: Swipie): Swipie[] {
+  if (!list.some((s) => s.id === oldId)) return [...list]
   const rest = removeSwipie(list, oldId)
   return isDuplicate(rest, next) ? rest : [...rest, next].sort(byName)
 }
