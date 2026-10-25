@@ -134,3 +134,77 @@ describe('dropout', () => {
     expect(currentMatch(state)).toBeNull()
   })
 })
+
+describe('double elimination', () => {
+  const cfg = (n: number, seed = 1): TournamentConfig => ({ algorithm: 'double-elimination', ids: ids(n), seed })
+
+  test('a single loss does not eliminate', () => {
+    let state = startTournament(cfg(4))
+    const m = currentMatch(state)!
+    state = pick(state, m.a)
+    state = pick(state, currentMatch(state)!.a)
+    const r1 = results(state).rounds[0]
+    expect(r1.firstLosses).toHaveLength(2)
+    expect(r1.eliminated).toHaveLength(0)
+  })
+
+  test('two swipies: undefeated favourite wins in 2 matches', () => {
+    const { state, picks } = playAll(cfg(2))
+    expect(picks).toHaveLength(2)
+    expect(results(state).winner).toBe('a')
+  })
+
+  test('two swipies: the 1-loss side winning forces a deciding third match', () => {
+    // first pick b, then a, then a
+    const config = cfg(2)
+    const state = replay(config, ['b', 'a', 'a'])
+    expect(state.status).toBe('done')
+    expect(results(state).winner).toBe('a')
+  })
+
+  test.each([2, 3, 4, 5, 6, 7, 8, 11, 16])('%i swipies: everyone but the winner loses twice', (n) => {
+    const { state, picks } = playAll(cfg(n))
+    expect(results(state).winner).toBe('a')
+    // preferred one never loses => exactly 2(n-1) matches
+    expect(picks).toHaveLength(2 * (n - 1))
+    const eliminated = results(state).rounds.flatMap((r) => r.eliminated)
+    expect(eliminated.sort()).toEqual(ids(n).slice(1))
+  })
+
+  test('matches only pair equal loss counts, except one cross match of odd leftovers', () => {
+    for (let seed = 0; seed < 30; seed++) {
+      let state = startTournament(cfg(9, seed))
+      while (state.status === 'playing') {
+        if (state.matchIndex > 0) {
+          const m = currentMatch(state)!
+          state = pick(state, m.a < m.b ? m.a : m.b)
+          continue
+        }
+        const crossMatches = state.plan.matches.filter((m) => state.losses[m.a] !== state.losses[m.b])
+        expect(crossMatches.length).toBeLessThanOrEqual(1)
+        if (crossMatches.length === 1) expect(state.plan.byes).toHaveLength(0)
+        const m = currentMatch(state)!
+        state = pick(state, m.a < m.b ? m.a : m.b)
+      }
+    }
+  })
+
+  test('progress estimate is exact at the end and never overshoots completed matches', () => {
+    const config = cfg(5, 3)
+    const { picks } = playAll(config, (a, b) => (a > b ? a : b))
+    for (let i = 0; i <= picks.length; i++) {
+      const p = progress(replay(config, picks.slice(0, i)))
+      expect(p.estimatedTotal).toBeGreaterThanOrEqual(p.completedMatches)
+      expect(p.estimatedTotal).toBeLessThanOrEqual(picks.length)
+    }
+    expect(progress(replay(config, picks)).estimatedTotal).toBe(picks.length)
+  })
+
+  test('ranking places the last eliminated as runner-up', () => {
+    const { state } = playAll(cfg(6))
+    const { ranking, rounds } = results(state)
+    expect(ranking[0].ids).toEqual(['a'])
+    expect(ranking[1].ids).toEqual(rounds[rounds.length - 1].eliminated)
+    expect(ranking.flatMap((t) => t.ids).sort()).toEqual(ids(6))
+  })
+})
