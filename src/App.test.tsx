@@ -13,9 +13,9 @@ afterAll(() => server.close())
 
 const rawg = createRawgSource('k')
 
-function setup(source = offlineSource) {
+function setup(source = offlineSource, random = () => 0.1) {
   const user = userEvent.setup()
-  const utils = render(<App source={source} seed={() => 7} />)
+  const utils = render(<App source={source} seed={() => 7} random={random} />)
   return { user, ...utils }
 }
 
@@ -38,6 +38,16 @@ describe('import page', () => {
     expect(start).toBeDisabled()
     await pasteGames(user, 'Celeste')
     expect(start).toBeEnabled()
+  })
+
+  test('shows an effort estimate that follows the algorithm', async () => {
+    const { user } = setup()
+    await pasteGames(user, 'A')
+    expect(screen.queryByText(/picks/i)).not.toBeInTheDocument()
+    await pasteGames(user, 'B\nC\nD\nE\nF\nG\nH')
+    expect(screen.getByText('≈ 7 picks · about 1 min')).toBeInTheDocument()
+    await user.click(screen.getByRole('radio', { name: /double/i }))
+    expect(screen.getByText('≈ 14–15 picks · about 2 min')).toBeInTheDocument()
   })
 
   test('pasted multi-line text is added alphabetically and the box clears', async () => {
@@ -356,6 +366,21 @@ describe('swipe page', () => {
     await user.keyboard('{ArrowLeft}')
     await user.keyboard('z')
     expect(screen.getByText(/match 1 of 2/i)).toBeInTheDocument()
+  })
+
+  test("can't decide picks a random game and can be undone", async () => {
+    const { user } = await startWith('A\nB\nC\nD')
+    const left = matchCards()[0].getAttribute('aria-label')!.replace(/^Pick /, '')
+    await user.click(screen.getByRole('button', { name: /can't decide/i }))
+    expect(screen.getByText(/match 2 of 2/i)).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent(`Randomly picked ${left}`)
+    await user.click(screen.getByRole('button', { name: /undo/i }))
+    expect(screen.getByText(/match 1 of 2/i)).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('')
+    await user.keyboard('r')
+    expect(screen.getByText(/match 2 of 2/i)).toBeInTheDocument()
+    await user.keyboard('{ArrowLeft}')
+    expect(screen.queryByText(/randomly picked/i)).not.toBeInTheDocument()
   })
 
   test('progress survives a reload', async () => {

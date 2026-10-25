@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { formatEstimate } from '../core/estimate'
 import { ImportError, parseImport, SAMPLE_IMPORT, type ImportEntry } from '../core/importParser'
 import type { Session, SessionAction } from '../core/session'
 import { encodeShare } from '../core/shareLink'
@@ -210,6 +211,7 @@ export function ImportPage({ session, dispatch, source, onImport, onStart }: Pro
             Copy share link
           </button>
         </div>
+        {swipies.length >= 2 && <p className="estimate muted">{formatEstimate(swipies.length, session.algorithm)}</p>}
         {shareUrl && (
           <input className="share-url" aria-label="Share link" readOnly value={shareUrl} onFocus={(e) => e.target.select()} />
         )}
