@@ -46,3 +46,12 @@ export function decodeShare(hash: string): SharedList | null {
   const a = params.get('a') ?? ''
   return { algorithm: a in ALGORITHMS ? (a as AlgorithmId) : 'dropout', entries }
 }
+
+const entryKey = (e: { name: string; rawgId?: number }) => (e.rawgId ? `r:${e.rawgId}` : `n:${e.name.toLowerCase()}`)
+
+export function isSameList(shared: SharedList, current: { algorithm: AlgorithmId; swipies: readonly Swipie[] }): boolean {
+  if (shared.algorithm !== current.algorithm) return false
+  const a = new Set(shared.entries.map(entryKey))
+  const b = new Set(current.swipies.map(entryKey))
+  return a.size === b.size && [...a].every((k) => b.has(k))
+}

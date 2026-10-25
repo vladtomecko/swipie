@@ -2,14 +2,18 @@
 
 Swipe through head-to-head matchups until a tournament algorithm crowns a winner. The first swipie type is games, with data from [RAWG](https://rawg.io/apidocs).
 
-1. **Import:** search RAWG, paste a list, or upload a file. A sample JSON is available to download. Pick an algorithm.
-2. **Swipe:** tap, swipe, or use ← / → to pick, and Z or Backspace to undo. Progress is saved in localStorage.
+1. **Import:** search RAWG, add a whole franchise ("Add all games matching…"), paste a list, or upload a file. A sample JSON is available to download. Pick an algorithm.
+2. **Swipe:** tap, swipe, or use ← / → to pick, and Z or Backspace to undo. A short summary follows each round. Progress is saved in localStorage.
 3. **Results:** the winner, a full ranking and a round-by-round timeline.
 
 ## Import formats
 
 - JSON: `{"version":1,"games":[{"name":"Hades"},{"name":"Portal 2","rawgId":4200}]}` or `["Hades","Celeste"]`
 - Text: one name per line. Blank lines and `# comments` are ignored.
+
+## Sharing
+
+The address bar always holds the current list and algorithm (`#s=1&a=dropout&g=…`). RAWG games are stored as base36 ids and other games by name. Copy the URL and send it; when it's opened, the games load and their details are looked up.
 
 ## Algorithms
 

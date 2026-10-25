@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { App } from './App'
+import { decodeShare } from './core/shareLink'
 import { offlineSource } from './sources/source'
 import { createRawgSource } from './sources/rawg'
 import { http, HttpResponse } from 'msw'
@@ -400,12 +401,12 @@ describe('share links', () => {
     expect(screen.getByRole('textbox', { name: /share link/i })).toHaveValue(url)
   })
 
-  test('opening a share link loads and resolves the games, then clears the hash', async () => {
+  test('opening a share link loads and resolves the games, and the address bar keeps the list', async () => {
     history.replaceState(null, '', '/#s=1&a=double-elimination&g=1,3,~Mystery%20Game')
     setup(rawg)
     await waitFor(() => expect(gameNames()).toEqual(['Celeste', 'Hades', 'Mystery Game']))
     expect(screen.getByRole('radio', { name: /double/i })).toBeChecked()
-    expect(window.location.hash).toBe('')
+    expect(decodeShare(window.location.hash)?.entries.map((e) => e.rawgId ?? e.name).sort()).toEqual([1, 3, 'Mystery Game'].sort())
     expect(screen.queryByText(/from "/)).not.toBeInTheDocument()
   })
 
@@ -418,7 +419,32 @@ describe('share links', () => {
     setup()
     expect(confirm).toHaveBeenCalledOnce()
     expect(gameNames()).toEqual(['Mine'])
+    expect(window.location.hash).toBe('#s=1&a=dropout&g=~Mine')
+  })
+
+  test('the address bar tracks the list as games are added, removed or the algorithm changes', async () => {
+    const { user } = setup()
     expect(window.location.hash).toBe('')
+    await pasteGames(user, 'B\nA')
+    expect(window.location.hash).toBe('#s=1&a=dropout&g=~A,~B')
+    await user.click(screen.getByRole('radio', { name: /double/i }))
+    expect(window.location.hash).toBe('#s=1&a=double-elimination&g=~A,~B')
+    await user.click(screen.getByRole('button', { name: 'Remove A' }))
+    expect(window.location.hash).toBe('#s=1&a=double-elimination&g=~B')
+    await user.click(screen.getByRole('button', { name: /clear all/i }))
+    expect(window.location.hash).toBe('')
+  })
+
+  test('reloading your own synced URL does not ask to replace anything', async () => {
+    const { user, unmount } = setup()
+    await pasteGames(user, 'A\nB')
+    await user.click(screen.getByRole('button', { name: /start swiping/i }))
+    await user.keyboard('{ArrowLeft}')
+    unmount()
+    const confirm = vi.spyOn(window, 'confirm')
+    setup()
+    expect(confirm).not.toHaveBeenCalled()
+    expect(screen.getByRole('heading', { name: /winner/i })).toBeInTheDocument()
   })
 
   test('replaces the existing list when confirmed', async () => {

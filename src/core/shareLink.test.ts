@@ -31,3 +31,14 @@ test('malformed share data is rejected or skipped safely', () => {
   expect(decodeShare('#s=1&a=bogus&g=a')?.algorithm).toBe('dropout')
   expect(decodeShare('#s=1&a=dropout&g=a,,~%E0%A4%A,!!')?.entries).toEqual([{ name: 'RAWG #10', rawgId: 10 }])
 })
+
+describe('isSameList', () => {
+  test('ignores order and name placeholders for RAWG ids; compares algorithm', async () => {
+    const { isSameList } = await import('./shareLink')
+    const session = { algorithm: 'dropout' as const, swipies: [game(1, 'Hades'), plain('Mystery'), game(3, 'Celeste')] }
+    const shared = decodeShare(encodeShare({ algorithm: 'dropout', swipies: [game(3, 'x'), game(1, 'y'), plain('mystery')] }))!
+    expect(isSameList(shared, session)).toBe(true)
+    expect(isSameList({ ...shared, algorithm: 'double-elimination' }, session)).toBe(false)
+    expect(isSameList({ ...shared, entries: shared.entries.slice(1) }, session)).toBe(false)
+  })
+})

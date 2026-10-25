@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useReducer, useRef } from 'react'
 import { loadSession, saveSession, sessionReducer, tournamentState, view } from './core/session'
 import { randomSeed } from './core/rng'
-import { decodeShare } from './core/shareLink'
+import { decodeShare, encodeShare, isSameList } from './core/shareLink'
 import type { Swipie } from './core/swipie'
 import { createRawgSource } from './sources/rawg'
 import { offlineSource, type SwipieSource } from './sources/source'
@@ -31,13 +31,19 @@ export function App({ source = defaultSource, seed = randomSeed }: Props) {
     if (sharedHandled.current) return
     sharedHandled.current = true
     const shared = decodeShare(window.location.hash)
-    if (!shared) return
-    history.replaceState(null, '', window.location.pathname + window.location.search)
+    if (!shared || isSameList(shared, sessionRef.current)) return
     const { swipies, tournament } = sessionRef.current
     const hasWork = swipies.length > 0 || tournament !== null
     if (hasWork && !window.confirm(`Replace your current list with the ${shared.entries.length} shared games?`)) return
     void importEntries(shared.entries, { algorithm: shared.algorithm })
   }, [importEntries])
+
+  useEffect(() => {
+    const { algorithm, swipies } = session
+    const hash = swipies.length ? `#${encodeShare({ algorithm, swipies })}` : ''
+    if (window.location.hash === hash) return
+    history.replaceState(null, '', `${window.location.pathname}${window.location.search}${hash}`)
+  }, [session])
 
   const byId = useCallback(
     (id: string): Swipie => session.swipies.find((s) => s.id === id) ?? { id, name: id, query: id, status: 'not-found' },
