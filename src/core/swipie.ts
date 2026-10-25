@@ -17,6 +17,8 @@ export interface Swipie {
   released?: string
   link?: string
   stores?: StoreLink[]
+  ratingsCount?: number
+  tba?: boolean
 }
 
 export function pendingSwipie(entry: ImportEntry): Swipie {

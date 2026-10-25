@@ -1,5 +1,6 @@
 import { http, HttpResponse } from 'msw'
-import { RAWG, server } from '../test/rawgMock'
+import { RAWG, rawgGame, server } from '../test/rawgMock'
+import { offlineSource } from './source'
 import { createRawgSource } from './rawg'
 
 beforeAll(() => server.listen({ onUnhandledFrame: 'error' }))
@@ -60,4 +61,70 @@ test('resolve on network/server error marks not-found instead of throwing', asyn
 test('search errors propagate so the UI can show them', async () => {
   server.use(http.get(`${RAWG}/games`, () => new HttpResponse(null, { status: 500 })))
   await expect(source.search('hades')).rejects.toThrow()
+})
+
+describe('searchAll', () => {
+  test('asks RAWG for precise base games only, 40 per page', async () => {
+    const seen: URLSearchParams[] = []
+    server.use(
+      http.get(`${RAWG}/games`, ({ request }) => {
+        seen.push(new URL(request.url).searchParams)
+        return HttpResponse.json({ next: null, results: [] })
+      }),
+    )
+    await source.searchAll('total war')
+    expect(seen).toHaveLength(1)
+    expect(Object.fromEntries(seen[0])).toMatchObject({
+      key: 'test-key',
+      search: 'total war',
+      search_precise: 'true',
+      exclude_additions: 'true',
+      page_size: '40',
+      page: '1',
+    })
+  })
+
+  test('drops DLC and maps ratings count and tba', async () => {
+    const results = await source.searchAll('total war')
+    const names = results.map((s) => s.name)
+    expect(names).toContain('Total War: ROME II')
+    expect(names).not.toContain('Total War: SHOGUN 2 - Fall of the Samurai')
+    expect(results.find((s) => s.rawgId === 16)).toMatchObject({ ratingsCount: 4, query: 'total war' })
+    expect(results.find((s) => s.rawgId === 14)).toMatchObject({ tba: true })
+    expect(results.find((s) => s.rawgId === 11)).not.toHaveProperty('tba')
+  })
+
+  test('follows pages until next is null, at most three', async () => {
+    const pages: string[] = []
+    const page = (p: number) => Array.from({ length: 40 }, (_, i) => rawgGame(p * 100 + i, `Game ${p}-${i}`))
+    server.use(
+      http.get(`${RAWG}/games`, ({ request }) => {
+        const p = Number(new URL(request.url).searchParams.get('page'))
+        pages.push(String(p))
+        return HttpResponse.json({ next: `${RAWG}/games?page=${p + 1}`, results: page(p) })
+      }),
+    )
+    expect(await source.searchAll('game')).toHaveLength(120)
+    expect(pages).toEqual(['1', '2', '3'])
+
+    pages.length = 0
+    server.use(
+      http.get(`${RAWG}/games`, ({ request }) => {
+        const p = Number(new URL(request.url).searchParams.get('page'))
+        pages.push(String(p))
+        return HttpResponse.json({ next: p < 2 ? `${RAWG}/games?page=${p + 1}` : null, results: page(p) })
+      }),
+    )
+    expect(await source.searchAll('game')).toHaveLength(80)
+    expect(pages).toEqual(['1', '2'])
+  })
+
+  test('errors propagate', async () => {
+    server.use(http.get(`${RAWG}/games`, () => new HttpResponse(null, { status: 500 })))
+    await expect(source.searchAll('total war')).rejects.toThrow()
+  })
+})
+
+test('offline source finds nothing in bulk', async () => {
+  expect(await offlineSource.searchAll('total war')).toEqual([])
 })

@@ -3,7 +3,8 @@ import userEvent from '@testing-library/user-event'
 import { App } from './App'
 import { offlineSource } from './sources/source'
 import { createRawgSource } from './sources/rawg'
-import { server } from './test/rawgMock'
+import { http, HttpResponse } from 'msw'
+import { RAWG, server } from './test/rawgMock'
 
 beforeAll(() => server.listen({ onUnhandledFrame: 'error' }))
 afterEach(() => server.resetHandlers())
@@ -131,6 +132,136 @@ describe('import page with RAWG', () => {
     const option = await screen.findByRole('option', { name: /DOOM \(1993\)/ })
     await user.click(option)
     expect(gameNames()).toEqual(['DOOM (1993)'])
+  })
+})
+
+describe('batch add', () => {
+  const searchBox = () => screen.getByRole('combobox', { name: /search games/i })
+  const batchOption = () => screen.findByRole('option', { name: /add all games matching "total war"/i })
+
+  async function openBatch(user: ReturnType<typeof userEvent.setup>, query = 'total war') {
+    await user.type(searchBox(), query)
+    await user.click(await screen.findByRole('option', { name: new RegExp(`add all games matching "${query}"`, 'i') }))
+    return screen.getByRole('dialog', { name: `Add games matching "${query}"` })
+  }
+
+  const candidates = async (dialog: HTMLElement) => {
+    await within(dialog).findAllByRole('checkbox')
+    return within(dialog).getAllByRole('checkbox')
+  }
+
+  test('the first suggestion offers to add every matching game', async () => {
+    const { user } = setup(rawg)
+    await user.type(searchBox(), 'total war')
+    await batchOption()
+    const options = screen.getAllByRole('option')
+    expect(options[0]).toHaveAccessibleName('Add all games matching "total war"…')
+    expect(options.length).toBeGreaterThan(1)
+  })
+
+  test('reviewing lists released matching base games oldest first, obscure ones unticked', async () => {
+    const { user } = setup(rawg)
+    const dialog = await openBatch(user)
+    const boxes = await candidates(dialog)
+    const order = ['Total War: SHOGUN 2', 'Total War: ROME II', 'Total War: WARHAMMER', 'Total War: ARENA']
+    expect(boxes).toEqual(order.map((name) => within(dialog).getByRole('checkbox', { name })))
+    expect(boxes.map((b) => (b as HTMLInputElement).checked)).toEqual([true, true, true, false])
+    expect(within(dialog).getByRole('checkbox', { name: 'Total War: ROME II' })).toHaveAccessibleDescription(/2013/)
+    expect(within(dialog).getByRole('button', { name: 'Add 3 games' })).toBeEnabled()
+  })
+
+  test('unticking a game and confirming adds the rest and reports it', async () => {
+    const { user } = setup(rawg)
+    const dialog = await openBatch(user)
+    await candidates(dialog)
+    await user.click(within(dialog).getByRole('checkbox', { name: 'Total War: ROME II' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Add 2 games' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(gameNames()).toEqual(['Total War: SHOGUN 2', 'Total War: WARHAMMER'])
+    expect(screen.getByRole('status')).toHaveTextContent('Added 2 games')
+    expect(screen.queryByText(/from "/)).not.toBeInTheDocument()
+  })
+
+  test('select none disables adding; select all includes obscure games', async () => {
+    const { user } = setup(rawg)
+    const dialog = await openBatch(user)
+    await candidates(dialog)
+    await user.click(within(dialog).getByRole('button', { name: /select none/i }))
+    expect(within(dialog).getByRole('button', { name: 'Add 0 games' })).toBeDisabled()
+    await user.click(within(dialog).getByRole('button', { name: /select all/i }))
+    await user.click(within(dialog).getByRole('button', { name: 'Add 4 games' }))
+    expect(gameNames()).toEqual(['Total War: ARENA', 'Total War: ROME II', 'Total War: SHOGUN 2', 'Total War: WARHAMMER'])
+  })
+
+  test('games already in the list are shown but cannot be ticked', async () => {
+    const { user } = setup(rawg)
+    await user.type(searchBox(), 'rome')
+    await user.click(await screen.findByRole('option', { name: /^Total War: ROME II/ }))
+    const dialog = await openBatch(user)
+    await candidates(dialog)
+    const rome = within(dialog).getByRole('checkbox', { name: 'Total War: ROME II' })
+    expect(rome).toBeDisabled()
+    expect(rome).not.toBeChecked()
+    expect(rome).toHaveAccessibleDescription(/already added/i)
+    await user.click(within(dialog).getByRole('button', { name: /select all/i }))
+    expect(rome).not.toBeChecked()
+    expect(within(dialog).getByRole('button', { name: 'Add 3 games' })).toBeInTheDocument()
+  })
+
+  test('Escape and Cancel close the review without adding', async () => {
+    const { user } = setup(rawg)
+    await openBatch(user)
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    const dialog = await openBatch(user)
+    await user.click(within(dialog).getByRole('button', { name: /cancel/i }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(gameNames()).toEqual([])
+  })
+
+  test('says so when no released game matches', async () => {
+    const { user } = setup(rawg)
+    const dialog = await openBatch(user, 'total zzz')
+    expect(await within(dialog).findByText(/no released games match/i)).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'Add 0 games' })).toBeDisabled()
+  })
+
+  test('shows an error when RAWG fails', async () => {
+    const { user } = setup(rawg)
+    await user.type(searchBox(), 'total war')
+    const option = await batchOption()
+    server.use(http.get(`${RAWG}/games`, () => new HttpResponse(null, { status: 500 })))
+    await user.click(option)
+    const dialog = screen.getByRole('dialog')
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(/failed/i)
+  })
+
+  test('Enter still picks the first game; the batch row is reached with ArrowUp', async () => {
+    const { user } = setup(rawg)
+    await user.type(searchBox(), 'hades')
+    await screen.findByRole('option', { name: /^Hades II/ })
+    await user.keyboard('{Enter}')
+    expect(gameNames()).toEqual(['Hades'])
+    await user.type(searchBox(), 'total war')
+    await batchOption()
+    await user.keyboard('{ArrowUp}{Enter}')
+    expect(screen.getByRole('dialog', { name: 'Add games matching "total war"' })).toBeInTheDocument()
+  })
+
+  test('not offered when changing a single match', async () => {
+    const { user } = setup(rawg)
+    await pasteGames(user, 'doom')
+    await waitFor(() => expect(gameNames()).toEqual(['DOOM']))
+    await user.click(screen.getByRole('button', { name: 'Change DOOM' }))
+    await screen.findByRole('option', { name: /DOOM \(1993\)/ })
+    expect(screen.queryByRole('option', { name: /add all games/i })).not.toBeInTheDocument()
+  })
+
+  test('not offered offline', async () => {
+    const { user } = setup()
+    await user.type(searchBox(), 'total war')
+    await new Promise((r) => setTimeout(r, 300))
+    expect(screen.queryByRole('option', { name: /add all games/i })).not.toBeInTheDocument()
   })
 })
 

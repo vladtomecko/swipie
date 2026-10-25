@@ -5,6 +5,7 @@ import { encodeShare } from '../core/shareLink'
 import type { Swipie } from '../core/swipie'
 import { ALGORITHMS, type AlgorithmId } from '../core/tournament'
 import type { SwipieSource } from '../sources/source'
+import { BatchAddDialog } from './BatchAddDialog'
 import { GameSearch } from './GameSearch'
 import { SwipieMeta, SwipieThumb } from './SwipieCard'
 
@@ -23,13 +24,22 @@ export function ImportPage({ session, dispatch, source, onImport, onStart }: Pro
   const [status, setStatus] = useState('')
   const [changing, setChanging] = useState<string | null>(null)
   const [shareUrl, setShareUrl] = useState('')
+  const [batchQuery, setBatchQuery] = useState<string | null>(null)
   const { swipies } = session
 
   const isAdded = (s: Swipie) => swipies.some((x) => x.id === s.id || x.name.toLowerCase() === s.name.toLowerCase())
 
+  const addedCount = (n: number) => `Added ${n} game${n === 1 ? '' : 's'}`
+
   function importEntries(entries: ImportEntry[]) {
     void onImport(entries)
-    setStatus(`Added ${entries.length} game${entries.length === 1 ? '' : 's'}`)
+    setStatus(addedCount(entries.length))
+  }
+
+  function addBatch(chosen: Swipie[]) {
+    dispatch({ type: 'add', swipies: chosen.map((s) => ({ ...s, query: s.name })) })
+    setStatus(addedCount(chosen.length))
+    setBatchQuery(null)
   }
 
   async function copyShareLink() {
@@ -82,7 +92,11 @@ export function ImportPage({ session, dispatch, source, onImport, onStart }: Pro
           isAdded={isAdded}
           onChoose={addChosen}
           onSubmitText={(text) => importEntries([{ name: text }])}
+          onBatch={source.available ? setBatchQuery : undefined}
         />
+        {batchQuery !== null && (
+          <BatchAddDialog source={source} query={batchQuery} isAdded={isAdded} onAdd={addBatch} onClose={() => setBatchQuery(null)} />
+        )}
         <div className="import__row">
           <label className="filebtn">
             Import file (.json / .txt)
